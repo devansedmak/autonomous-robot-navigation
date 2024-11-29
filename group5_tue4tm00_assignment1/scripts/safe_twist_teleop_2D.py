@@ -7,11 +7,50 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
+from core_proj_nav_ctrl import proj_nav_tools
+import numpy as np
+# from group5_tue4tm00_assignment1 import tools
 
+import matplotlib.pyplot as plt 
+import matplotlib.patches as patches
 import rclpy.time
 from tf_transformations import euler_from_quaternion
 import tf2_ros
 
+def gradient(x, p, r):
+    grad_norm = np.linalg.norm(x - p)
+    if grad_norm == 0:
+        return 2*(x-p)
+    else:
+        return 2*(x-p)*(1/grad_norm)
+
+def safe_point(x, p, r):
+    grad = gradient(x,p,r)
+    d = grad*r+p
+    return d
+def safe_point1(x, p, r):
+    grad = gradient(x,p,r)
+    d = grad*2*r+p
+    return d
+
+def polygon_convex_interior_safe(polygon, center, r):
+
+    polygon = np.asarray(polygon)
+    center = np.asarray(center)
+
+    nearest_points = proj_nav_tools.local_nearest(polygon, center)
+
+    convex_interior = polygon
+    for point in nearest_points:
+        point1=point
+        point = safe_point(center, point, r) # Get the new point
+        if np.linalg.norm(center-point) <= r:
+            center1 =safe_point1(center, point1, r)
+            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center1-point)
+        else:
+            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center-point)
+
+    return convex_interior
 
 class SafeTwistTeleop2D(Node):
     
@@ -19,11 +58,44 @@ class SafeTwistTeleop2D(Node):
         super().__init__('safe_twist_teleop_2D', allow_undeclared_parameters=True, 
                          automatically_declare_parameters_from_overrides=True)
         
-        
+        # Node Properties
+        self.pose_x = 0.0 # robot x-position
+        self.pose_y = 0.0 # robot y-position
+        self.pose_a = 0.0 # robot yaw angle
+        self.r = 0.4 # radius
+        self.scan_pose_x = 0.0 # scan x-position
+        self.scan_pose_y = 0.0 # scan y-position
+        self.scan_pose_a = 0.0 # scan yaw angle
+        self.scan_points = np.zeros((2,2)) # Valid scan points
+        self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
+        self.convex_interior = np.zeros((2,2))
         # If needed in your design, get a node parameter for update rate
         default_rate = Parameter('rate', Parameter.Type.DOUBLE, 10.0) 
         self.rate = self.get_parameter_or('rate', default_rate).value
                 
+        self.figure_options = {'figwidth': 4.0, 'figheight': 4.0} # Refer to **kwargs of matplotlib.figure.Figure
+        self.axes_options = {'aspect': 'equal', 'xlim': (-3.0,3.0), 'ylim':(-3.0, 3.0)} # Refer to **kwargs of matplotlib.axes.Axes
+        self.grid_options = {'visible': True, 'linewidth': 0.5} # Refer to **kwargs of matplotlib.axes.Axes.grid
+        self.plot_options = {'color': 'r', 'marker': 'o', 'linestyle': '', 'markersize': 2.0} # Refer to **kwargs of matplotlib.pyplot.plot
+        self.quiver_options = {'scale': 1.0, 'angles': 'xy', 'scale_units': 'xy'} # Refer to **kwargs of matplotlib.pyplot.quiver
+        self.patch_options = {'facecolor':'b', 'edgecolor': None, 'alpha': 0.3} # Refer to **kwargs of matplotlib.patches.Patch
+        self.scatter_options = {'s': 50, 'color': 'blue'} # # Refer to **kwargs of matplotlib.pyplot.scatter
+        self.corridor_patch_options = {'facecolor':'y', 'edgecolor': None, 'alpha': 0.5} # Refer to **kwargs of matplotlib.patches.Patch
+        figure_options = self.get_parameters_by_prefix('figure_options')
+        self.figure_options = {key: param.value for key, param in figure_options.items()} if figure_options else self.figure_options
+        axes_options = self.get_parameters_by_prefix('axes_options')
+        self.axes_options = {key: param.value for key, param in axes_options.items()} if axes_options else self.axes_options  
+        grid_options = self.get_parameters_by_prefix('grid_options')
+        self.grid_options = {key: param.value for key, param in grid_options.items()} if grid_options else self.grid_options
+        plot_options = self.get_parameters_by_prefix('plot_options')
+        self.plot_options = {key: param.value for key, param in plot_options.items()} if plot_options else self.plot_options
+        quiver_options = self.get_parameters_by_prefix('quiver_options')
+        self.quiver_options = {key: param.value for key, param in quiver_options.items()} if quiver_options else self.quiver_options
+        patch_options = self.get_parameters_by_prefix('patch_options')
+        self.patch_options = {key: param.value for key, param in patch_options.items()} if patch_options else self.patch_options
+        corridor_patch_options = self.get_parameters_by_prefix('corridor_patch_options')
+        self.corridor_patch_options = {key: param.value for key, param in corridor_patch_options.items()} if corridor_patch_options else self.corridor_patch_options
+
         # If needed in your design, create a subscriber to the input cmd_vel topic
         self.create_subscription(Twist, 'cmd_vel_in', self.cmd_vel_in_callback, 1)
 
@@ -42,21 +114,42 @@ class SafeTwistTeleop2D(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
+        # Start visualization
+        self.plot_start()
+
         # If need in your design, crease a timer for periodic updates
         self.create_timer(1.0 / self.rate, self.timer_callback)
 
-    def scan_callback(self, msg):
+    def scan_callback(self, scan_msg):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
         """
-        #TODO: If needed, use the scan topic messages in your design
-        pass
+        self.scan_pose_x = self.pose_x
+        self.scan_pose_y = self.pose_y
+        self.scan_pose_a = self.pose_a
 
-    def pose_callback(self, msg):
+        scan_ranges = np.array(scan_msg.ranges)
+        scan_angles = np.linspace(scan_msg.angle_min, scan_msg.angle_max, scan_ranges.size)
+        scan_valid = np.logical_not(np.isinf(scan_ranges))
+        scan_ranges[~scan_valid] = scan_msg.range_max
+
+        scan_rotation_matrix = np.array([[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)],
+                                         [np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)]])
+        scan_points = np.column_stack((scan_ranges*np.cos(scan_angles), scan_ranges*np.sin(scan_angles)))
+        
+        scan_points = np.dot(scan_points, np.transpose(scan_rotation_matrix)) + np.array([[self.scan_pose_x, self.scan_pose_y]])
+
+        self.scan_points = scan_points[scan_valid,:]
+        self.scan_polygon = scan_points
+        #print("ciao")
+
+    def pose_callback(self, pose_msg):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
+        self.pose_x = pose_msg.pose.position.x
+        self.pose_y = pose_msg.pose.position.y
+        self.pose_a = euler_from_quaternion([pose_msg.pose.orientation.x, pose_msg.pose.orientation.y, pose_msg.pose.orientation.z, pose_msg.pose.orientation.w])[2]
         pass
 
     def cmd_vel_in_callback(self, msg):
@@ -66,16 +159,67 @@ class SafeTwistTeleop2D(Node):
         #TODO: If needed, use the input cmd_vel topic messages in your design
         
         # For example, a simple direct input-to-output cmd_vel mapping without safety check
+        #print("ciao")
         self.cmd_vel_out = msg                  
         
+    def plot_start(self):
+        # Create figure for visualization
+        plt.ion()
+        self.fig = plt.figure()
+        self.fig.set(**self.figure_options)
+        self.ax = self.fig.add_subplot(1,1,1)
+        self.ax.set(**self.axes_options)
+        self.ax.grid(**self.grid_options)
+
+        self.scan_patch = patches.Polygon(self.scan_polygon, **self.patch_options)
+        self.ax.add_patch(self.scan_patch)
+        self.corridor_patch = patches.Polygon(self.scan_polygon, **self.corridor_patch_options)
+        self.ax.add_patch(self.corridor_patch)    
+        self.scan_plot, = self.ax.plot([], [], **self.plot_options)
+        self.nearest_scan_scatter = self.ax.scatter([],[], **self.scatter_options)
+        self.quiver = self.ax.quiver([0,0], [0,0], **self.quiver_options)
+
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()
+
+    def plot_update(self):
+        # Update figure
+
+        nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
+        self.convex_interior = polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
+
+        self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
+        self.scan_patch.set_xy(self.scan_polygon)
+        self.corridor_patch.set_xy(self.convex_interior)
+        self.quiver.set_UVC(U=[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)], 
+                            V=[np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)])
+        self.quiver.set(offsets=(self.scan_pose_x,self.scan_pose_y))
+        self.nearest_scan_scatter.set_offsets(np.c_[nearest_points[:,0], nearest_points[:,1]])
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()
 
     def timer_callback(self):
         """
         Callback function for peridic timer updates
         """
-        #TODO: If needed, use the timer callbacks in your design 
+        self.plot_update()
         
+        if (proj_nav_tools.inpolygon(self.convex_interior, [self.scan_pose_x, self.scan_pose_y])):
+            '''
+            # Set linear velocity (forward)
+            self.cmd_vel_out.linear.x = 0.0  # Forward velocity in m/s
+            self.cmd_vel_out.linear.y = 0.0
+            self.cmd_vel_out.linear.z = 0.0
+
+            # Set angular velocity (rotation)
+            self.cmd_vel_out.angular.x = 0.0
+            self.cmd_vel_out.angular.y = 0.0
+            self.cmd_vel_out.angular.z = 0.0  # Rotation in rad/s
+            '''
+            print("safe")
+        else: print("non safe")
         # For example, publish the output cmd_vel message
+        
         self.cmd_vel_out_pub.publish(self.cmd_vel_out)
 
 
