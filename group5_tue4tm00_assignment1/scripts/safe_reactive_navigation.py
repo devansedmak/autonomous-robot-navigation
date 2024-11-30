@@ -9,11 +9,9 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
 from core_proj_nav_ctrl import proj_nav_tools
 from core_grad_nav_ctrl import grad_nav_tools
-# from group5_tue4tm00_assignment1 import tools
-import matplotlib.pyplot as plt 
+from group5_tue4tm00_assignment1 import tools
+import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-
-from shapely.geometry import Point, Polygon
 
 import rclpy.time
 from tf_transformations import euler_from_quaternion
@@ -21,63 +19,6 @@ import tf2_ros
 
 import numpy as np
 import time 
-
-def gradient(x, p, r):
-    grad_norm = np.linalg.norm(x - p)
-    if grad_norm == 0:
-        return (x-p)
-    else:
-        return (x-p)*(1/grad_norm)
-
-def U_repulsive(polygon, center, r):
-    nearest_points = proj_nav_tools.local_nearest(polygon, center)
-   
-    U =  [0.0,0.0]
-    U = np.asarray(U)
-    for point in nearest_points:
-        U1=  [0.0,0.0]
-        if np.linalg.norm(center-point) <= 2*r:
-        
-            if np.linalg.norm(center-point) <= (r):
-                U1 =  1.4 * gradient(center, point, r)
-            else:
-                #U1=[2*r,2*r]-(center-point)
-                U1 = gradient(center, point, r) * (1.4*np.linalg.norm(center-point)/r+2.8) 
-        else:
-           U1=[0.0,0.0]
-        U=U+U1
-        if np.linalg.norm(U)>=1.4:
-            U=U/np.linalg.norm(U)*1.4
-    return U
-
-def safe_point(x, p, r):
-    grad = gradient(x,p,r)
-    d = grad*r+p
-    return d
-
-def safe_point1(x, p, r):
-    grad = gradient(x,p,r)
-    d = grad*2*r+p
-    return d
-
-def polygon_convex_interior_safe(polygon, center, r):
-
-    polygon = np.asarray(polygon)
-    center = np.asarray(center)
-
-    nearest_points = proj_nav_tools.local_nearest(polygon, center)
-
-    convex_interior = polygon
-    for point in nearest_points:
-        point1=point
-        point = safe_point(center, point, r) # Get the new point
-        if np.linalg.norm(center-point) <= r:
-            center1 =safe_point1(center, point1, r)
-            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center1-point)
-        else:
-            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center-point)
-
-    return convex_interior
 
 class SafeReactiveNavigation(Node):
     
@@ -97,12 +38,12 @@ class SafeReactiveNavigation(Node):
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.convex_interior = np.zeros((2,2))
-        self.goal_proj_x = 0.0
-        self.goal_proj_y = 0.0
-        self.goal_x = 0.0
-        self.goal_y = 0.0
+        self.goal_proj_x = 0.0 # projected goal x-position
+        self.goal_proj_y = 0.0 # projected goal y-position
+        self.goal_x = 0.0   # goal x-position
+        self.goal_y = 0.0   # goal y-position
         
-        # If needed in your design, get a node parameter for update rate
+        # Node parameters
         default_rate = Parameter('rate', Parameter.Type.DOUBLE, 10.0) 
         self.rate = self.get_parameter_or('rate', default_rate).value
 
@@ -129,20 +70,20 @@ class SafeReactiveNavigation(Node):
         corridor_patch_options = self.get_parameters_by_prefix('corridor_patch_options')
         self.corridor_patch_options = {key: param.value for key, param in corridor_patch_options.items()} if corridor_patch_options else self.corridor_patch_options
 
-        # If needed in your design, create a subcriber to the pose topic
+        # Create a subcriber to the pose topic
         self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
 
-        # If needed in your design, create a subcriber to the goal topic
+        # Create a subcriber to the goal topic
         self.create_subscription(PoseStamped, 'goal', self.goal_callback, 1)
 
-        # If needed in your design, create a subcriber to the scan topic
+        # Create a subcriber to the scan topic
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 1)
 
-        # If needed in your design, create a publisher for the cmd_vel topic
+        # Create a publisher for the cmd_vel topic
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 1)
         self.cmd_vel = Twist()
 
-        # If needed in your design, create a buffer and listener to the /tf topic 
+        # Create a buffer and listener to the /tf topic 
         # to get transformations via self.tf_buffer.lookup_transform
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -150,14 +91,13 @@ class SafeReactiveNavigation(Node):
         # Start visualization
         self.plot_start()
 
-        # If need in your design, crease a timer for periodic updates
+        # Create a timer for periodic updates
         self.create_timer(1.0 / self.rate, self.timer_callback)
 
     def pose_callback(self, msg):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
         self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
@@ -167,7 +107,6 @@ class SafeReactiveNavigation(Node):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
     
@@ -217,7 +156,8 @@ class SafeReactiveNavigation(Node):
         # Update figure
 
         self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        self.convex_interior = polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
+        # Compute the Local Free Space
+        self.convex_interior = tools.polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
 
         self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
         self.scan_patch.set_xy(self.scan_polygon)
@@ -225,7 +165,7 @@ class SafeReactiveNavigation(Node):
         self.quiver.set_UVC(U=[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)], 
                             V=[np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)])
         self.quiver.set(offsets=(self.scan_pose_x,self.scan_pose_y))
-        #self.nearest_scan_scatter.set_offsets(np.c_[self.nearest_points[:,0], self.nearest_points[:,1]])
+        # Plot the goal projection
         self.nearest_scan_scatter.set_offsets(np.c_[self.goal_proj_x, self.goal_proj_y])
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
@@ -234,28 +174,35 @@ class SafeReactiveNavigation(Node):
         """
         Callback function for peridic timer updates
         """
-        #TODO: If needed, use the timer callbacks in your design 
-        
+        # Project the goal on the Local Free Space boundary
         d, self.goal_proj_x, self.goal_proj_y = proj_nav_tools.point_to_polygon_distance(float(self.goal_x), float(self.goal_y), self.convex_interior[:,0].astype(float), self.convex_interior[:,1].astype(float))
 
+        # Check if the poligon is correctly computed (only a problem when the simulator is started)
         if self.convex_interior.shape[0] >= 3:
+            # If the goal is inside the Local Free Space don't use the projection
             if proj_nav_tools.inpolygon(self.convex_interior, [float(self.goal_x), float(self.goal_y)]):
                 self.goal_proj_x = self.goal_x
                 self.goal_proj_y = self.goal_y
         
+        # Update the plot
         self.plot_update()
         
+        # Define correctly the parameters and variables
         ctrl_gain = 0.1
         position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
         const_ang_vel = 0.0
 
+        # Compute the gradient and scale it by the negative gain
         gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, [float(self.goal_proj_x), float(self.goal_proj_y)], self.nearest_points, attractive_strength=1, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
         
+        # Transform velocity
         velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
         
         self.cmd_vel.linear.x = float(velocity_body.flatten()[0])
         self.cmd_vel.linear.y = float(velocity_body.flatten()[1])
         self.cmd_vel.angular.z = const_ang_vel
+
+        # Publish velocity
         self.cmd_vel_pub.publish(self.cmd_vel)
 
 

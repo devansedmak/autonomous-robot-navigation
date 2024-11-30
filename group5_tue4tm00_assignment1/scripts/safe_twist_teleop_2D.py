@@ -10,70 +10,13 @@ from geometry_msgs.msg import TransformStamped
 from core_proj_nav_ctrl import proj_nav_tools
 from core_grad_nav_ctrl import grad_nav_tools
 import numpy as np
-# from group5_tue4tm00_assignment1 import tools
+from group5_tue4tm00_assignment1 import tools
 
 import matplotlib.pyplot as plt 
 import matplotlib.patches as patches
 import rclpy.time
 from tf_transformations import euler_from_quaternion
 import tf2_ros
-
-def gradient(x, p, r):
-    grad_norm = np.linalg.norm(x - p)
-    if grad_norm == 0:
-        return (x-p)
-    else:
-        return (x-p)*(1/grad_norm)
-
-def U_repulsive(polygon, center, r):
-    nearest_points = proj_nav_tools.local_nearest(polygon, center)
-   
-    U =  [0.0,0.0]
-    U = np.asarray(U)
-    for point in nearest_points:
-        U1=  [0.0,0.0]
-        if np.linalg.norm(center-point) <= 2*r:
-        
-            if np.linalg.norm(center-point) <= (r):
-                U1 =  1.4 * gradient(center, point, r)
-            else:
-                #U1=[2*r,2*r]-(center-point)
-                U1 = gradient(center, point, r) * (1.4*np.linalg.norm(center-point)/r+2.8) 
-        else:
-           U1=[0.0,0.0]
-        U=U+U1
-        if np.linalg.norm(U)>=1.4:
-            U=U/np.linalg.norm(U)*1.4
-    return U
-
-def safe_point(x, p, r):
-    grad = gradient(x,p,r)
-    d = grad*r+p
-    return d
-
-def safe_point1(x, p, r):
-    grad = gradient(x,p,r)
-    d = grad*2*r+p
-    return d
-
-def polygon_convex_interior_safe(polygon, center, r):
-
-    polygon = np.asarray(polygon)
-    center = np.asarray(center)
-
-    nearest_points = proj_nav_tools.local_nearest(polygon, center)
-
-    convex_interior = polygon
-    for point in nearest_points:
-        point1=point
-        point = safe_point(center, point, r) # Get the new point
-        if np.linalg.norm(center-point) <= r:
-            center1 =safe_point1(center, point1, r)
-            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center1-point)
-        else:
-            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center-point)
-
-    return convex_interior
 
 class SafeTwistTeleop2D(Node):
     
@@ -92,7 +35,8 @@ class SafeTwistTeleop2D(Node):
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.convex_interior = np.zeros((2,2))
-        # If needed in your design, get a node parameter for update rate
+
+        # Node parameters
         default_rate = Parameter('rate', Parameter.Type.DOUBLE, 10.0) 
         self.rate = self.get_parameter_or('rate', default_rate).value
                 
@@ -119,20 +63,20 @@ class SafeTwistTeleop2D(Node):
         corridor_patch_options = self.get_parameters_by_prefix('corridor_patch_options')
         self.corridor_patch_options = {key: param.value for key, param in corridor_patch_options.items()} if corridor_patch_options else self.corridor_patch_options
 
-        # If needed in your design, create a subscriber to the input cmd_vel topic
+        # Create a subscriber to the input cmd_vel topic
         self.create_subscription(Twist, 'cmd_vel_in', self.cmd_vel_in_callback, 1)
 
-        # If needed in your design, create a subcriber to the scan topic
+        # Create a subcriber to the scan topic
         self.create_subscription(LaserScan, 'scan', self.scan_callback, 1)
 
-        # If needed in your design, create a subcriber to the pose topic
+        # Create a subcriber to the pose topic
         self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
 
-        # If needed in your design, create a publisher for the output cmd_vel topic
+        # Create a publisher for the output cmd_vel topic
         self.cmd_vel_out_pub = self.create_publisher(Twist, 'cmd_vel_out', 1)
         self.cmd_vel_out = Twist()
 
-        # If needed in your design, create a buffer and listener to the /tf topic 
+        # Create a buffer and listener to the /tf topic 
         # to get transformations via self.tf_buffer.lookup_transform
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -140,7 +84,7 @@ class SafeTwistTeleop2D(Node):
         # Start visualization
         self.plot_start()
 
-        # If need in your design, crease a timer for periodic updates
+        # Crease a timer for periodic updates
         self.create_timer(1.0 / self.rate, self.timer_callback)
 
     def scan_callback(self, scan_msg):
@@ -172,30 +116,21 @@ class SafeTwistTeleop2D(Node):
         self.pose_x = pose_msg.pose.position.x
         self.pose_y = pose_msg.pose.position.y
         self.pose_a = euler_from_quaternion([pose_msg.pose.orientation.x, pose_msg.pose.orientation.y, pose_msg.pose.orientation.z, pose_msg.pose.orientation.w])[2]
-        pass
 
     def cmd_vel_in_callback(self, msg):
         """
         Callback function for the input cmd_vel topic, handling messages of type geometry_msgs.msg.LaserScan
         """
-        
-        # For example, a simple direct input-to-output cmd_vel mapping without safety check
+        # Find nearest points on the Local Safe Corridor boundary
         self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        #gradient = 0.001 * grad_nav_tools.gradient_navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
-        gradient = U_repulsive(self.convex_interior, [self.pose_x, self.pose_y], self.r)
-        #gradient = gradient*grad_nav_tools.navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
+        # Computed the value of the repulsive field in the current robot's position
+        gradient = tools.U_repulsive(self.convex_interior, [self.pose_x, self.pose_y], self.r)
+        # Transform the velocity
         velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
-        
-        print(msg.linear.x)
-        print(msg.linear.y)
-        print(velocity_body[0])
-        print(velocity_body[1])
 
         self.cmd_vel_out.linear.x = velocity_body[0] + msg.linear.x
         self.cmd_vel_out.linear.y = velocity_body[1] + msg.linear.y
         self.cmd_vel_out.angular.z = 0.0
-        
-        # self.cmd_vel_out = msg
         
     def plot_start(self):
         # Create figure for visualization
@@ -221,7 +156,8 @@ class SafeTwistTeleop2D(Node):
         # Update figure
 
         self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        self.convex_interior = polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
+        # Compute the Local Safe Corridor
+        self.convex_interior = proj_nav_tools.polygon_convex_interior(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y])
 
         self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
         self.scan_patch.set_xy(self.scan_polygon)
@@ -237,40 +173,10 @@ class SafeTwistTeleop2D(Node):
         """
         Callback function for peridic timer updates
         """
+        # Update the plot
         self.plot_update()
-        """
-        if (proj_nav_tools.inpolygon(self.convex_interior, [self.scan_pose_x, self.scan_pose_y])):
-            '''
-            # Set linear velocity (forward)
-            self.cmd_vel_out.linear.x = 0.0  # Forward velocity in m/s
-            self.cmd_vel_out.linear.y = 0.0
-            self.cmd_vel_out.linear.z = 0.0
 
-            # Set angular velocity (rotation)
-            self.cmd_vel_out.angular.x = 0.0
-            self.cmd_vel_out.angular.y = 0.0
-            self.cmd_vel_out.angular.z = 0.0  # Rotation in rad/s
-            '''
-            print("safe")
-        else: print("non safe")
-        """
-        '''
-        # For example, a simple direct input-to-output cmd_vel mapping without safety check
-        # self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        gradient = grad_nav_tools.gradient_navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
-        #gradient = gradient*grad_nav_tools.navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
-        velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
-        
-        print(self.cmd_vel_out.linear.x)
-        print(self.cmd_vel_out.linear.y)
-        print(velocity_body[0])
-        print(velocity_body[1])
-
-        self.cmd_vel_out.linear.x = velocity_body[0] + self.cmd_vel_out.linear.x
-        self.cmd_vel_out.linear.y = velocity_body[1] + self.cmd_vel_out.linear.y
-        self.cmd_vel_out.angular.z = 0.0
-        '''
-        # For example, publish the output cmd_vel message
+        # Publish the velocity
         self.cmd_vel_out_pub.publish(self.cmd_vel_out)
 
 
