@@ -7,6 +7,13 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
+from core_proj_nav_ctrl import proj_nav_tools
+from core_grad_nav_ctrl import grad_nav_tools
+# from group5_tue4tm00_assignment1 import tools
+import matplotlib.pyplot as plt 
+import matplotlib.patches as patches
+
+from shapely.geometry import Point, Polygon
 
 import rclpy.time
 from tf_transformations import euler_from_quaternion
@@ -15,6 +22,63 @@ import tf2_ros
 import numpy as np
 import time 
 
+def gradient(x, p, r):
+    grad_norm = np.linalg.norm(x - p)
+    if grad_norm == 0:
+        return (x-p)
+    else:
+        return (x-p)*(1/grad_norm)
+
+def U_repulsive(polygon, center, r):
+    nearest_points = proj_nav_tools.local_nearest(polygon, center)
+   
+    U =  [0.0,0.0]
+    U = np.asarray(U)
+    for point in nearest_points:
+        U1=  [0.0,0.0]
+        if np.linalg.norm(center-point) <= 2*r:
+        
+            if np.linalg.norm(center-point) <= (r):
+                U1 =  1.4 * gradient(center, point, r)
+            else:
+                #U1=[2*r,2*r]-(center-point)
+                U1 = gradient(center, point, r) * (1.4*np.linalg.norm(center-point)/r+2.8) 
+        else:
+           U1=[0.0,0.0]
+        U=U+U1
+        if np.linalg.norm(U)>=1.4:
+            U=U/np.linalg.norm(U)*1.4
+    return U
+
+def safe_point(x, p, r):
+    grad = gradient(x,p,r)
+    d = grad*r+p
+    return d
+
+def safe_point1(x, p, r):
+    grad = gradient(x,p,r)
+    d = grad*2*r+p
+    return d
+
+def polygon_convex_interior_safe(polygon, center, r):
+
+    polygon = np.asarray(polygon)
+    center = np.asarray(center)
+
+    nearest_points = proj_nav_tools.local_nearest(polygon, center)
+
+    convex_interior = polygon
+    for point in nearest_points:
+        point1=point
+        point = safe_point(center, point, r) # Get the new point
+        if np.linalg.norm(center-point) <= r:
+            center1 =safe_point1(center, point1, r)
+            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center1-point)
+        else:
+            convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center-point)
+
+    return convex_interior
+
 class SafeReactiveNavigation(Node):
     
     def __init__(self):
@@ -22,15 +86,48 @@ class SafeReactiveNavigation(Node):
                          automatically_declare_parameters_from_overrides=True)
         
         # time.sleep(5.0) # Some Delays
+        # Node Properties
         self.pose_x = 0.0 # robot x-position
         self.pose_y = 0.0 # robot y-position
         self.pose_a = 0.0 # robot yaw angle
-        self.goal_x = 0.0 # goal x-position
-        self.goal_y = 0.0 # goal y-position
+        self.r = 0.2 # radius
+        self.scan_pose_x = 0.0 # scan x-position
+        self.scan_pose_y = 0.0 # scan y-position
+        self.scan_pose_a = 0.0 # scan yaw angle
+        self.scan_points = np.zeros((2,2)) # Valid scan points
+        self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
+        self.convex_interior = np.zeros((2,2))
+        self.goal_proj_x = 0.0
+        self.goal_proj_y = 0.0
+        self.goal_x = 0.0
+        self.goal_y = 0.0
         
         # If needed in your design, get a node parameter for update rate
         default_rate = Parameter('rate', Parameter.Type.DOUBLE, 10.0) 
         self.rate = self.get_parameter_or('rate', default_rate).value
+
+        self.figure_options = {'figwidth': 4.0, 'figheight': 4.0} # Refer to **kwargs of matplotlib.figure.Figure
+        self.axes_options = {'aspect': 'equal', 'xlim': (-3.0,3.0), 'ylim':(-3.0, 3.0)} # Refer to **kwargs of matplotlib.axes.Axes
+        self.grid_options = {'visible': True, 'linewidth': 0.5} # Refer to **kwargs of matplotlib.axes.Axes.grid
+        self.plot_options = {'color': 'r', 'marker': 'o', 'linestyle': '', 'markersize': 2.0} # Refer to **kwargs of matplotlib.pyplot.plot
+        self.quiver_options = {'scale': 1.0, 'angles': 'xy', 'scale_units': 'xy'} # Refer to **kwargs of matplotlib.pyplot.quiver
+        self.patch_options = {'facecolor':'b', 'edgecolor': None, 'alpha': 0.3} # Refer to **kwargs of matplotlib.patches.Patch
+        self.scatter_options = {'s': 50, 'color': 'blue'} # # Refer to **kwargs of matplotlib.pyplot.scatter
+        self.corridor_patch_options = {'facecolor':'y', 'edgecolor': None, 'alpha': 0.5} # Refer to **kwargs of matplotlib.patches.Patch
+        figure_options = self.get_parameters_by_prefix('figure_options')
+        self.figure_options = {key: param.value for key, param in figure_options.items()} if figure_options else self.figure_options
+        axes_options = self.get_parameters_by_prefix('axes_options')
+        self.axes_options = {key: param.value for key, param in axes_options.items()} if axes_options else self.axes_options  
+        grid_options = self.get_parameters_by_prefix('grid_options')
+        self.grid_options = {key: param.value for key, param in grid_options.items()} if grid_options else self.grid_options
+        plot_options = self.get_parameters_by_prefix('plot_options')
+        self.plot_options = {key: param.value for key, param in plot_options.items()} if plot_options else self.plot_options
+        quiver_options = self.get_parameters_by_prefix('quiver_options')
+        self.quiver_options = {key: param.value for key, param in quiver_options.items()} if quiver_options else self.quiver_options
+        patch_options = self.get_parameters_by_prefix('patch_options')
+        self.patch_options = {key: param.value for key, param in patch_options.items()} if patch_options else self.patch_options
+        corridor_patch_options = self.get_parameters_by_prefix('corridor_patch_options')
+        self.corridor_patch_options = {key: param.value for key, param in corridor_patch_options.items()} if corridor_patch_options else self.corridor_patch_options
 
         # If needed in your design, create a subcriber to the pose topic
         self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
@@ -49,6 +146,9 @@ class SafeReactiveNavigation(Node):
         # to get transformations via self.tf_buffer.lookup_transform
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+        # Start visualization
+        self.plot_start()
 
         # If need in your design, crease a timer for periodic updates
         self.create_timer(1.0 / self.rate, self.timer_callback)
@@ -71,12 +171,64 @@ class SafeReactiveNavigation(Node):
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
     
-    def scan_callback(self, msg):
+    def scan_callback(self, scan_msg):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
         """
-        #TODO: If needed, use the scan topic messages in your design
-        pass          
+        self.scan_pose_x = self.pose_x
+        self.scan_pose_y = self.pose_y
+        self.scan_pose_a = self.pose_a
+
+        scan_ranges = np.array(scan_msg.ranges)
+        scan_angles = np.linspace(scan_msg.angle_min, scan_msg.angle_max, scan_ranges.size)
+        scan_valid = np.logical_not(np.isinf(scan_ranges))
+        scan_ranges[~scan_valid] = scan_msg.range_max
+
+        scan_rotation_matrix = np.array([[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)],
+                                         [np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)]])
+        scan_points = np.column_stack((scan_ranges*np.cos(scan_angles), scan_ranges*np.sin(scan_angles)))
+        
+        scan_points = np.dot(scan_points, np.transpose(scan_rotation_matrix)) + np.array([[self.scan_pose_x, self.scan_pose_y]])
+
+        self.scan_points = scan_points[scan_valid,:]
+        self.scan_polygon = scan_points         
+
+    def plot_start(self):
+        # Create figure for visualization
+        plt.ion()
+        self.fig = plt.figure()
+        self.fig.set(**self.figure_options)
+        self.ax = self.fig.add_subplot(1,1,1)
+        self.ax.set(**self.axes_options)
+        self.ax.grid(**self.grid_options)
+
+        self.scan_patch = patches.Polygon(self.scan_polygon, **self.patch_options)
+        self.ax.add_patch(self.scan_patch)
+        self.corridor_patch = patches.Polygon(self.scan_polygon, **self.corridor_patch_options)
+        self.ax.add_patch(self.corridor_patch)    
+        self.scan_plot, = self.ax.plot([], [], **self.plot_options)
+        self.nearest_scan_scatter = self.ax.scatter([],[], **self.scatter_options)
+        self.quiver = self.ax.quiver([0,0], [0,0], **self.quiver_options)
+
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()
+
+    def plot_update(self):
+        # Update figure
+
+        self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
+        self.convex_interior = polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
+
+        self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
+        self.scan_patch.set_xy(self.scan_polygon)
+        self.corridor_patch.set_xy(self.convex_interior)
+        self.quiver.set_UVC(U=[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)], 
+                            V=[np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)])
+        self.quiver.set(offsets=(self.scan_pose_x,self.scan_pose_y))
+        #self.nearest_scan_scatter.set_offsets(np.c_[self.nearest_points[:,0], self.nearest_points[:,1]])
+        self.nearest_scan_scatter.set_offsets(np.c_[self.goal_proj_x, self.goal_proj_y])
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()
 
     def timer_callback(self):
         """
@@ -84,11 +236,25 @@ class SafeReactiveNavigation(Node):
         """
         #TODO: If needed, use the timer callbacks in your design 
         
-        # For example, publish the cmd_vel message to directly go to the goal while rotating around itself
+        d, self.goal_proj_x, self.goal_proj_y = proj_nav_tools.point_to_polygon_distance(float(self.goal_x), float(self.goal_y), self.convex_interior[:,0].astype(float), self.convex_interior[:,1].astype(float))
+
+        if self.convex_interior.shape[0] >= 3:
+            if proj_nav_tools.inpolygon(self.convex_interior, [float(self.goal_x), float(self.goal_y)]):
+                self.goal_proj_x = self.goal_x
+                self.goal_proj_y = self.goal_y
+        
+        self.plot_update()
+        
         ctrl_gain = 0.1
-        const_ang_vel = 1.0
-        self.cmd_vel.linear.x = np.dot([np.cos(self.pose_a), np.sin(self.pose_a)], [-ctrl_gain*(self.pose_x-self.goal_x), -ctrl_gain*(self.pose_y-self.goal_y)])
-        self.cmd_vel.linear.y = np.dot([-np.sin(self.pose_a), np.cos(self.pose_a)], [-ctrl_gain*(self.pose_x-self.goal_x), -ctrl_gain*(self.pose_y-self.goal_y)])
+        position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
+        const_ang_vel = 0.0
+
+        gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, [float(self.goal_proj_x), float(self.goal_proj_y)], self.nearest_points, attractive_strength=1, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
+        
+        velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
+        
+        self.cmd_vel.linear.x = float(velocity_body.flatten()[0])
+        self.cmd_vel.linear.y = float(velocity_body.flatten()[1])
         self.cmd_vel.angular.z = const_ang_vel
         self.cmd_vel_pub.publish(self.cmd_vel)
 

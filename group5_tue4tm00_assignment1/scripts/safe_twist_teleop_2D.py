@@ -34,14 +34,16 @@ def U_repulsive(polygon, center, r):
         U1=  [0.0,0.0]
         if np.linalg.norm(center-point) <= 2*r:
         
-            if np.linalg.norm(center-point) <= (r+0.05):
-                U1 =  1.1 * gradient(center, point, r)
+            if np.linalg.norm(center-point) <= (r):
+                U1 =  1.4 * gradient(center, point, r)
             else:
                 #U1=[2*r,2*r]-(center-point)
-                U1 = gradient(center, point, r) * (1.1*np.linalg.norm(center-point)/r+2.2) 
+                U1 = gradient(center, point, r) * (1.4*np.linalg.norm(center-point)/r+2.8) 
         else:
            U1=[0.0,0.0]
         U=U+U1
+        if np.linalg.norm(U)>=1.4:
+            U=U/np.linalg.norm(U)*1.4
     return U
 
 def safe_point(x, p, r):
