@@ -8,6 +8,7 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import TransformStamped
 from core_proj_nav_ctrl import proj_nav_tools
+from core_grad_nav_ctrl import grad_nav_tools
 import numpy as np
 # from group5_tue4tm00_assignment1 import tools
 
@@ -20,14 +21,34 @@ import tf2_ros
 def gradient(x, p, r):
     grad_norm = np.linalg.norm(x - p)
     if grad_norm == 0:
-        return 2*(x-p)
+        return (x-p)
     else:
-        return 2*(x-p)*(1/grad_norm)
+        return (x-p)*(1/grad_norm)
+
+def U_repulsive(polygon, center, r):
+    nearest_points = proj_nav_tools.local_nearest(polygon, center)
+   
+    U =  [0.0,0.0]
+    U = np.asarray(U)
+    for point in nearest_points:
+        U1=  [0.0,0.0]
+        if np.linalg.norm(center-point) <= 2*r:
+        
+            if np.linalg.norm(center-point) <= (r+0.05):
+                U1 =  1.1 * gradient(center, point, r)
+            else:
+                #U1=[2*r,2*r]-(center-point)
+                U1 = gradient(center, point, r) * (1.1*np.linalg.norm(center-point)/r+2.2) 
+        else:
+           U1=[0.0,0.0]
+        U=U+U1
+    return U
 
 def safe_point(x, p, r):
     grad = gradient(x,p,r)
     d = grad*r+p
     return d
+
 def safe_point1(x, p, r):
     grad = gradient(x,p,r)
     d = grad*2*r+p
@@ -62,7 +83,7 @@ class SafeTwistTeleop2D(Node):
         self.pose_x = 0.0 # robot x-position
         self.pose_y = 0.0 # robot y-position
         self.pose_a = 0.0 # robot yaw angle
-        self.r = 0.4 # radius
+        self.r = 0.2 # radius
         self.scan_pose_x = 0.0 # scan x-position
         self.scan_pose_y = 0.0 # scan y-position
         self.scan_pose_a = 0.0 # scan yaw angle
@@ -141,7 +162,6 @@ class SafeTwistTeleop2D(Node):
 
         self.scan_points = scan_points[scan_valid,:]
         self.scan_polygon = scan_points
-        #print("ciao")
 
     def pose_callback(self, pose_msg):
         """
@@ -156,11 +176,24 @@ class SafeTwistTeleop2D(Node):
         """
         Callback function for the input cmd_vel topic, handling messages of type geometry_msgs.msg.LaserScan
         """
-        #TODO: If needed, use the input cmd_vel topic messages in your design
         
         # For example, a simple direct input-to-output cmd_vel mapping without safety check
-        #print("ciao")
-        self.cmd_vel_out = msg                  
+        self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
+        #gradient = 0.001 * grad_nav_tools.gradient_navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
+        gradient = U_repulsive(self.convex_interior, [self.pose_x, self.pose_y], self.r)
+        #gradient = gradient*grad_nav_tools.navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
+        velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
+        
+        print(msg.linear.x)
+        print(msg.linear.y)
+        print(velocity_body[0])
+        print(velocity_body[1])
+
+        self.cmd_vel_out.linear.x = velocity_body[0] + msg.linear.x
+        self.cmd_vel_out.linear.y = velocity_body[1] + msg.linear.y
+        self.cmd_vel_out.angular.z = 0.0
+        
+        # self.cmd_vel_out = msg
         
     def plot_start(self):
         # Create figure for visualization
@@ -185,7 +218,7 @@ class SafeTwistTeleop2D(Node):
     def plot_update(self):
         # Update figure
 
-        nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
+        self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
         self.convex_interior = polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
 
         self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
@@ -194,7 +227,7 @@ class SafeTwistTeleop2D(Node):
         self.quiver.set_UVC(U=[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)], 
                             V=[np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)])
         self.quiver.set(offsets=(self.scan_pose_x,self.scan_pose_y))
-        self.nearest_scan_scatter.set_offsets(np.c_[nearest_points[:,0], nearest_points[:,1]])
+        self.nearest_scan_scatter.set_offsets(np.c_[self.nearest_points[:,0], self.nearest_points[:,1]])
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
 
@@ -203,7 +236,7 @@ class SafeTwistTeleop2D(Node):
         Callback function for peridic timer updates
         """
         self.plot_update()
-        
+        """
         if (proj_nav_tools.inpolygon(self.convex_interior, [self.scan_pose_x, self.scan_pose_y])):
             '''
             # Set linear velocity (forward)
@@ -218,8 +251,24 @@ class SafeTwistTeleop2D(Node):
             '''
             print("safe")
         else: print("non safe")
-        # For example, publish the output cmd_vel message
+        """
+        '''
+        # For example, a simple direct input-to-output cmd_vel mapping without safety check
+        # self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
+        gradient = grad_nav_tools.gradient_navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
+        #gradient = gradient*grad_nav_tools.navigation_potential_repulsive([self.pose_x, self.pose_y], self.nearest_points)
+        velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
         
+        print(self.cmd_vel_out.linear.x)
+        print(self.cmd_vel_out.linear.y)
+        print(velocity_body[0])
+        print(velocity_body[1])
+
+        self.cmd_vel_out.linear.x = velocity_body[0] + self.cmd_vel_out.linear.x
+        self.cmd_vel_out.linear.y = velocity_body[1] + self.cmd_vel_out.linear.y
+        self.cmd_vel_out.angular.z = 0.0
+        '''
+        # For example, publish the output cmd_vel message
         self.cmd_vel_out_pub.publish(self.cmd_vel_out)
 
 
