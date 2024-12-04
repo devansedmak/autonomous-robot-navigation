@@ -34,7 +34,9 @@ class SafeTwistTeleop2D(Node):
         self.scan_pose_a = 0.0 # scan yaw angle
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
-        self.convex_interior = np.zeros((2,2))
+        self.convex_interior = np.zeros((2,2)) # Local Safe Corridor initialization
+        self.cmd_msg = Twist() # Tracks the last user input
+        self.nearest_points = np.zeros((1,2)) # Nearest points
 
         # Node parameters
         default_rate = Parameter('rate', Parameter.Type.DOUBLE, 10.0) 
@@ -117,20 +119,12 @@ class SafeTwistTeleop2D(Node):
         self.pose_y = pose_msg.pose.position.y
         self.pose_a = euler_from_quaternion([pose_msg.pose.orientation.x, pose_msg.pose.orientation.y, pose_msg.pose.orientation.z, pose_msg.pose.orientation.w])[2]
 
-    def cmd_vel_in_callback(self, msg):
+    def cmd_vel_in_callback(self, cmd_msg):
         """
         Callback function for the input cmd_vel topic, handling messages of type geometry_msgs.msg.LaserScan
         """
-        # Find nearest points on the Local Safe Corridor boundary
-        self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        # Computed the value of the repulsive field in the current robot's position
-        gradient = tools.U_repulsive(self.convex_interior, [self.pose_x, self.pose_y], self.r)
-        # Transform the velocity
-        velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
-
-        self.cmd_vel_out.linear.x = velocity_body[0] + msg.linear.x
-        self.cmd_vel_out.linear.y = velocity_body[1] + msg.linear.y
-        self.cmd_vel_out.angular.z = 0.0
+        # Tracks the last input from the user
+        self.cmd_msg = cmd_msg
         
     def plot_start(self):
         # Create figure for visualization
@@ -175,6 +169,15 @@ class SafeTwistTeleop2D(Node):
         """
         # Update the plot
         self.plot_update()
+
+        # Computed the value of the repulsive field in the current robot's position
+        gradient = tools.U_repulsive(self.convex_interior, [self.pose_x, self.pose_y], self.r)
+        # Transform the velocity
+        velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
+
+        self.cmd_vel_out.linear.x = velocity_body[0] + self.cmd_msg.linear.x
+        self.cmd_vel_out.linear.y = velocity_body[1] + self.cmd_msg.linear.y
+        self.cmd_vel_out.angular.z = 0.0
 
         # Publish the velocity
         self.cmd_vel_out_pub.publish(self.cmd_vel_out)
