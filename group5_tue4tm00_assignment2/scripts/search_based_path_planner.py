@@ -9,6 +9,8 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import TransformStamped
+from core_occupancy_grid_costmap import occupancy_grid_costmap
+from core_search_path_planner import search_based_path_planning
 
 import rclpy.time
 from tf_transformations import euler_from_quaternion
@@ -33,7 +35,12 @@ class SearchBasedPathPlanner(Node):
         # If needed in your design, get a node parameter for update rate
         self.rate = 1.0 
         rate = self.get_parameter('rate').value
-        self.rate = rate if rate is not None else self.rate 
+        self.rate = rate if rate is not None else self.rate
+
+        # Node Parameters
+        self.max_cost = 100.0 # Maximum (unsafe) cost in the range of [0, 100]
+        max_cost = self.get_parameter('max_cost').value
+        self.max_cost = max_cost if max_cost is not None else self.max_cost
         
         # If needed in your design, create a subscriber to the pose topic
         self.pose_subscriber = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
@@ -118,14 +125,55 @@ class SearchBasedPathPlanner(Node):
         Callback function for peridic timer updates
         """
         #TODO: If needed, use the timer callbacks in your design 
+
+        if (self.pose_msg is None) or (self.goal_msg is None) or (self.costmap_msg is None):
+            return
         
-        # For example, publish the straight path between the pose and the goal messages 
+        self.get_logger().info('Path is being searched...')
+        
+        start_position = np.asarray([self.pose_x, self.pose_y])
+        goal_position = np.asarray([self.goal_x, self.goal_y])
+
+        costmap_origin = np.asarray([self.costmap_msg.info.origin.position.x, self.costmap_msg.info.origin.position.y])
+        costmap_resolution = self.costmap_msg.info.resolution 
+        costmap_matrix = np.array(self.costmap_msg.data).reshape(self.costmap_msg.info.height, self.costmap_msg.info.width)
+        costmap_matrix = np.float64(costmap_matrix)
+        costmap_matrix[costmap_matrix>=self.max_cost] = -1
+
+        start_cell = search_based_path_planning.world_to_grid(start_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+        goal_cell = search_based_path_planning.world_to_grid(goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+
+        path_grid = search_based_path_planning.shortest_path_networkx(costmap_matrix, start_cell, goal_cell, diagonal_connectivity=True)
+        path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
+
+        path_msg = Path()
+        path_msg.header.frame_id = 'world'
+        path_msg.header.stamp = self.get_clock().now().to_msg()
+
+        if path_world.size > 0:
+            path_msg.poses.append(self.pose_msg)
+            for waypoint in path_world:
+                pose_msg = PoseStamped()
+                pose_msg.header = path_msg.header
+                pose_msg.pose.position.x = waypoint[0]
+                pose_msg.pose.position.y = waypoint[1]
+                path_msg.poses.append(pose_msg)
+            path_msg.poses.append(self.goal_msg)
+
+        self.path_publisher.publish(path_msg)    
+        self.get_logger().info('Path is published!')
+
+
+
+        # For example, publish the straight path between the pose and the goal messages
+        '''
         self.path_msg = Path()
         self.path_msg.header.frame_id = 'world'
         self.path_msg.header.stamp = self.get_clock().now().to_msg()
         self.path_msg.poses.append(self.pose_msg)
         self.path_msg.poses.append(self.goal_msg)
         self.path_publisher.publish(self.path_msg)
+        '''
 
 
 def main(args=None):
