@@ -84,7 +84,6 @@ class SearchBasedPathPlanner(Node):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
@@ -94,7 +93,6 @@ class SearchBasedPathPlanner(Node):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
@@ -103,29 +101,24 @@ class SearchBasedPathPlanner(Node):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
         """
-        #TODO: If needed, use the scan topic messages in your design 
         self.scan_msg = msg
 
     def map_callback(self, msg):
         """
         Callback function for the map topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        #TODO: If needed, use the map topic messages in your design
         self.map_msg = msg
 
     def costmap_callback(self, msg):
         """
         Callback function for the costmap topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        #TODO: If needed, use the costmap topic messages in your design
         self.costmap_msg = msg    
 
     def timer_callback(self):
         """
         Callback function for peridic timer updates
         """
-        #TODO: If needed, use the timer callbacks in your design 
-
         if (self.pose_msg is None) or (self.goal_msg is None) or (self.costmap_msg is None):
             return
         
@@ -162,8 +155,6 @@ class SearchBasedPathPlanner(Node):
 
         self.path_publisher.publish(path_msg)    
         self.get_logger().info('Path is published!')
-
-
 
         # For example, publish the straight path between the pose and the goal messages
         '''

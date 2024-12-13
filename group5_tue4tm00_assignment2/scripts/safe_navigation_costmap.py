@@ -91,7 +91,6 @@ class NavigationCostmap(Node):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
@@ -101,7 +100,6 @@ class NavigationCostmap(Node):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
@@ -110,17 +108,12 @@ class NavigationCostmap(Node):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
         """
-        #TODO: If needed, use the scan topic messages in your design
         self.scan_msg = msg
 
     def map_callback(self, occgrid_msg):
         """
         Callback function for the map topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        #TODO: If needed, use the map topic messages in your
-
-                # For example, publish random costmap with the same settings as the map message
-
         self.get_logger().info('Occupancy grid map is received!')
 
         occupancy_matrix = np.array(occgrid_msg.data).reshape(occgrid_msg.info.height, occgrid_msg.info.width)
@@ -146,8 +139,6 @@ class NavigationCostmap(Node):
         """
         Callback function for peridic timer updates
         """
-        #TODO: If needed, use the timer callbacks in your design 
-
         '''
         self.costmap_msg = self.map_msg
         self.costmap_msg.data = [random.randint(0, 100) for _ in range(len(self.costmap_msg.data))]

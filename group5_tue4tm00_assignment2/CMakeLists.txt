@@ -55,4 +55,10 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}/
 )
 
+# Install group5_tue4tm00_assignment1
+install(
+  DIRECTORY ../group5_tue4tm00_assignment1/
+  DESTINATION lib/python3.10/site-packages/group5_tue4tm00_assignment1
+)
+
 ament_package()
