@@ -61,12 +61,3 @@ def polygon_convex_interior_safe(polygon, center, r):
             convex_interior = proj_nav_tools.polygon_intersect_halfplane(convex_interior, point, center-point)
 
     return convex_interior
-'''
-def nearest_points_safe(nearest_points, center, r):
-    # Computes the Free Local Space
-    center = np.asarray(center)
-
-    for point in nearest_points:
-        point = safe_point(center, point, r) # Get the new point
-    return nearest_points
-'''
