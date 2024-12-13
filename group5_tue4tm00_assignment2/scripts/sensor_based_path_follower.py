@@ -49,8 +49,10 @@ class SafePathFollower(Node):
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.path = np.zeros((0,2)) # Path
+        self.current_path = np.zeros((0,2)) # Path
         self.path_goal = np.zeros((1,2))
         self.r = 0.2
+        self.check = False # Check for initialization issues
         
         # Node parameters
         self.rate = 10.0 
@@ -193,7 +195,7 @@ class SafePathFollower(Node):
         path_points = []
         for pose_stamped in path_msg.poses:
             path_points.append([pose_stamped.pose.position.x, pose_stamped.pose.position.y])
-        self.path = np.asarray(path_points)
+        self.current_path = np.asarray(path_points)
 
     def plot_start(self):
         # Create figure for visualization
@@ -252,10 +254,19 @@ class SafePathFollower(Node):
         position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
         const_ang_vel = 0.0
 
-        # Compute the gradient and scale it by the negative gain
+        # Checks if the path is found, needed for initialization issues
+        if self.path_goal is not None:
+            self.check = True
+        
+        # If the path is not found then put the velocity to 0 and replan
         if self.path_goal is None:
             gradient = np.array([0, 0])
+            self.path = self.current_path
+            if self.check:
+                print("Replanning needed. Replanning...")
+                
         else:
+            # Compute the gradient and scale it by the negative gain
             gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.5, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
 
         # Transform velocity
@@ -272,6 +283,7 @@ class SafePathFollower(Node):
 def main(args=None):
     rclpy.init(args=args)
     safe_path_follower_node = SafePathFollower()
+    time.sleep(1)  # Delay for 5 seconds
     try: 
         rclpy.spin(safe_path_follower_node)
     except KeyboardInterrupt:
