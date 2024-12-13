@@ -51,6 +51,7 @@ class SafePathFollower(Node):
         self.path = np.zeros((0,2)) # Path
         self.path_goal = np.zeros((1,2))
         self.r = 0.2
+        self.positions = np.empty((0, 2))
         
         # Node parameters
         self.rate = 10.0 
@@ -87,7 +88,11 @@ class SafePathFollower(Node):
         self.path_plot_options = {key: param.value for key, param in path_plot_options.items()} if path_plot_options else self.path_plot_options
         path_goal_plot_options = self.get_parameters_by_prefix('path_goal_plot_options')
         self.path_goal_plot_options = {key: param.value for key, param in path_goal_plot_options.items()} if path_goal_plot_options else self.path_goal_plot_options
-
+        #
+        self.positions_plot_options = {'color': 'g', 'linewidth':1.0} # Refer to **kwargs of matplotlib.pyplot.plot
+        positions_plot_options = self.get_parameters_by_prefix('positions_plot_options')
+        self.positions_plot_options = {key: param.value for key, param in positions_plot_options.items()} if positions_plot_options else self.positions_plot_options
+        #self.positions_plot, = self.ax.plot([], [], **self.positions_plot_options)
         
         # If needed in your design, create a subscriber to the pose topic
         self.pose_subscriber = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
@@ -142,6 +147,8 @@ class SafePathFollower(Node):
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
         self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
+        new_position=np.array([[self.pose_x, self.pose_y]])
+        self.positions = np.vstack([self.positions, new_position])
 
     def goal_callback(self, msg):
         """
@@ -214,6 +221,8 @@ class SafePathFollower(Node):
         self.nearest_scan_scatter = self.ax.scatter([],[], **self.scatter_options)
         self.quiver = self.ax.quiver([0,0], [0,0], **self.quiver_options)
 
+        self.positions_plot, = self.ax.plot([], [], **self.positions_plot_options)
+
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
 
@@ -231,6 +240,9 @@ class SafePathFollower(Node):
 
         self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
         self.path_plot.set_data(self.path[:,0], self.path[:,1])
+        #
+        self.positions_plot.set_data(self.positions[:,0], self.positions[:,1])
+        #
         self.scan_patch.set_xy(self.scan_polygon)
         self.corridor_patch.set_xy(self.convex_interior)
         self.quiver.set_UVC(U=[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)], 
