@@ -35,7 +35,7 @@ def generate_launch_description():
     ld.add_action(robocyl_goal_map_launch)
 
     costmap_launch = TimerAction(
-        period=0.0, # Delay in seconds
+        period=1.0, # Delay in seconds
         actions = [
             GroupAction(
                 actions=[
@@ -62,7 +62,7 @@ def generate_launch_description():
     ld.add_action(costmap_launch)
 
     path_planner_launch = TimerAction(
-        period=3.0, # Delay in seconds
+        period=5.0, # Delay in seconds
         actions = [
             GroupAction(
                 actions=[
@@ -90,7 +90,7 @@ def generate_launch_description():
     ld.add_action(path_planner_launch)
 
     safe_path_follower_launch = TimerAction(
-        period=3.0, # Delay in seconds
+        period=6.0, # Delay in seconds
         actions = [
             GroupAction(
                 actions=[

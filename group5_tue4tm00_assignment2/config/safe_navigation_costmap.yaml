@@ -4,7 +4,10 @@
         rate: 1.0
         min_cost: 1.0 # Minimum cost in the range of [0, 100]
         max_cost: 90.0 # Maximum (unsafe) cost in the range of [0, 100]
+        #90
+        #decay_rate: 1.0 # Repulsive cost decay rate per meter
         decay_rate: 5.0 # Repulsive cost decay rate per meter
+
         safety_margin: 0.2 # Safety margin in meters
         occupancy_threshold: 0.01 # Occupancy probability threshold in the range of [0,1]
         

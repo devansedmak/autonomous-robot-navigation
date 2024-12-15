@@ -54,6 +54,7 @@ class SafePathFollower(Node):
         self.r = 0.2
         self.check = False # Check for initialization issues
         self.positions = np.empty((0, 2))
+        self.goal_change = False
         
         # Node parameters
         self.rate = 10.0 
@@ -157,6 +158,8 @@ class SafePathFollower(Node):
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
         self.goal_msg = msg
+        if  self.goal_x != msg.pose.position.x or self.goal_y != msg.pose.position.y:
+            self.goal_change = True
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
     
@@ -271,16 +274,35 @@ class SafePathFollower(Node):
             self.check = True
         
         # If the path is not found then put the velocity to 0 and replan
-        if self.path_goal is None:
+        
+        if self.path_goal is None or self.goal_change:
             gradient = np.array([0, 0])
+            if self.goal_change:
+                print("check")
             self.path = self.current_path
+            self.goal_change = False
             if self.check:
                 print("Replanning needed. Replanning...")
                 
         else:
             # Compute the gradient and scale it by the negative gain
             gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.5, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
+        
+        '''
+        if self.path_goal is None :
+            gradient = np.array([0, 0])
+            print("checkNo")
+            if self.goal_change:
+                print("check")
+            self.path = self.current_path
+            if self.check:
+                print("Replanning needed. Replanning...")
+        
 
+        else:
+            # Compute the gradient and scale it by the negative gain
+            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.5, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
+        '''
         # Transform velocity
         velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
         
@@ -295,7 +317,7 @@ class SafePathFollower(Node):
 def main(args=None):
     rclpy.init(args=args)
     safe_path_follower_node = SafePathFollower()
-    time.sleep(1)  # Delay for 5 seconds
+    #time.sleep(1)  # Delay for 5 seconds
     try: 
         rclpy.spin(safe_path_follower_node)
     except KeyboardInterrupt:

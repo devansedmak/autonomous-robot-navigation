@@ -11,6 +11,7 @@ from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import TransformStamped
 from core_occupancy_grid_costmap import occupancy_grid_costmap
 from core_search_path_planner import search_based_path_planning
+import networkx as nx
 
 import rclpy.time
 from tf_transformations import euler_from_quaternion
@@ -113,7 +114,7 @@ class SearchBasedPathPlanner(Node):
         """
         Callback function for the costmap topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        self.costmap_msg = msg    
+        self.costmap_msg = msg   
 
     def timer_callback(self):
         """
@@ -136,25 +137,33 @@ class SearchBasedPathPlanner(Node):
         start_cell = search_based_path_planning.world_to_grid(start_position, origin=costmap_origin, resolution=costmap_resolution)[0]
         goal_cell = search_based_path_planning.world_to_grid(goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
 
-        path_grid = search_based_path_planning.shortest_path_networkx(costmap_matrix, start_cell, goal_cell, diagonal_connectivity=True)
-        path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
+        try:
+            # Attempt to find the shortest path
+            path_grid = search_based_path_planning.shortest_path_networkx(
+                costmap_matrix, start_cell, goal_cell, diagonal_connectivity=True
+            )
+            path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
 
-        path_msg = Path()
-        path_msg.header.frame_id = 'world'
-        path_msg.header.stamp = self.get_clock().now().to_msg()
+            path_msg = Path()
+            path_msg.header.frame_id = 'world'
+            path_msg.header.stamp = self.get_clock().now().to_msg()
 
-        if path_world.size > 0:
-            path_msg.poses.append(self.pose_msg)
-            for waypoint in path_world:
-                pose_msg = PoseStamped()
-                pose_msg.header = path_msg.header
-                pose_msg.pose.position.x = waypoint[0]
-                pose_msg.pose.position.y = waypoint[1]
-                path_msg.poses.append(pose_msg)
-            path_msg.poses.append(self.goal_msg)
+            if path_world.size > 0:
+                path_msg.poses.append(self.pose_msg)
+                for waypoint in path_world:
+                    pose_msg = PoseStamped()
+                    pose_msg.header = path_msg.header
+                    pose_msg.pose.position.x = waypoint[0]
+                    pose_msg.pose.position.y = waypoint[1]
+                    path_msg.poses.append(pose_msg)
+                path_msg.poses.append(self.goal_msg)
 
-        self.path_publisher.publish(path_msg)    
-        self.get_logger().info('Path is published!')
+            self.path_publisher.publish(path_msg)
+            self.get_logger().info('Path is published!')
+
+        except nx.NodeNotFound as e:
+            # Handle the case where the graph does not contain the required nodes
+            self.get_logger().warn(f"A safe path does not exist!")
 
         # For example, publish the straight path between the pose and the goal messages
         '''
