@@ -53,8 +53,8 @@ class SafePathFollower(Node):
         self.path_goal = np.zeros((1,2))
         self.r = 0.2
         self.check = False # Check for initialization issues
-        self.positions = np.empty((0, 2))
-        self.goal_change = False
+        self.positions = np.empty((0, 2)) #is an array that contain all the positions that the robot takes
+        self.goal_change = False #we add this as a check to know whwn thw goal change
         
         # Node parameters
         self.rate = 10.0 
@@ -95,8 +95,7 @@ class SafePathFollower(Node):
         self.positions_plot_options = {'color': 'g', 'linewidth':1.0} # Refer to **kwargs of matplotlib.pyplot.plot
         positions_plot_options = self.get_parameters_by_prefix('positions_plot_options')
         self.positions_plot_options = {key: param.value for key, param in positions_plot_options.items()} if positions_plot_options else self.positions_plot_options
-        #self.positions_plot, = self.ax.plot([], [], **self.positions_plot_options)
-        
+       
         # If needed in your design, create a subscriber to the pose topic
         self.pose_subscriber = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
         self.pose_msg = PoseStamped()
@@ -159,8 +158,8 @@ class SafePathFollower(Node):
         """
         self.goal_msg = msg
         if  self.goal_x != msg.pose.position.x or self.goal_y != msg.pose.position.y:
-            self.goal_change = True
-        self.goal_x = msg.pose.position.x
+            self.goal_change = True         #if the goal is changed put the self.goal_change=true
+        self.goal_x = msg.pose.position.x   #we used this to load a new path
         self.goal_y = msg.pose.position.y
     
     def scan_callback(self, scan_msg):
@@ -273,13 +272,13 @@ class SafePathFollower(Node):
         if self.path_goal is not None:
             self.check = True
         
-        # If the path is not found then put the velocity to 0 and replan
+        # If the path is not found or the goal is changed the robot remain stopped waiting for a valid path
         
-        if self.path_goal is None or self.goal_change:
-            gradient = np.array([0, 0])
+        if self.path_goal is None or self.goal_change: 
+            gradient = np.array([0, 0])                
             if self.goal_change:
                 print("check")
-            self.path = self.current_path
+            self.path = self.current_path           
             self.goal_change = False
             if self.check:
                 print("Replanning needed. Replanning...")
@@ -287,22 +286,8 @@ class SafePathFollower(Node):
         else:
             # Compute the gradient and scale it by the negative gain
             gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.5, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
+            #gradient = np.array([0, 0])
         
-        '''
-        if self.path_goal is None :
-            gradient = np.array([0, 0])
-            print("checkNo")
-            if self.goal_change:
-                print("check")
-            self.path = self.current_path
-            if self.check:
-                print("Replanning needed. Replanning...")
-        
-
-        else:
-            # Compute the gradient and scale it by the negative gain
-            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.5, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
-        '''
         # Transform velocity
         velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
         
