@@ -167,16 +167,6 @@ class SearchBasedPathPlanner(Node):
         except ValueError as e:
             self.get_logger().warn(f"Cost map still loadeding!")
 
-        # For example, publish the straight path between the pose and the goal messages
-        '''
-        self.path_msg = Path()
-        self.path_msg.header.frame_id = 'world'
-        self.path_msg.header.stamp = self.get_clock().now().to_msg()
-        self.path_msg.poses.append(self.pose_msg)
-        self.path_msg.poses.append(self.goal_msg)
-        self.path_publisher.publish(self.path_msg)
-        '''
-
 
 def main(args=None):
     rclpy.init(args=args)
