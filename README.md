@@ -14,4 +14,5 @@ There are modules called 'tools.py' and 'tools2.py' that contain some functions 
 
 ## Roadmap
 First assignment finished: Safe Robot Teleoperation & Safe Reactive Navigation
+
 Second assignment finished: Search-Based Path Planning & Safe Path Following
