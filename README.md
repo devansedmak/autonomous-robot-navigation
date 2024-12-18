@@ -10,7 +10,8 @@ Here we upload the assignments of the course Robot Motion Planning and Control (
 Clone the repo. Pull the latest commit. Use the command 'colcon build' and source the folder.
 
 ## Usage
-There is module called 'tools.py' that contains some functions used in the implementations of our assignments.
+There are modules called 'tools.py' and 'tools2.py' that contain some functions used in the implementations of our assignments.
 
 ## Roadmap
 First assignment finished: Safe Robot Teleoperation & Safe Reactive Navigation
+Second assignment finished: Search-Based Path Planning & Safe Path Following
