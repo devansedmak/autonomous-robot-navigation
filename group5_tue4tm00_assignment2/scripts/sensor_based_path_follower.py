@@ -286,8 +286,9 @@ class SafePathFollower(Node):
                 
         else:
             # Compute the gradient and scale it by the negative gain
-            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.5, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
-        
+            #gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.5, repulsive_tolerance=0.0, repulsive_threshold_decay=3.0)
+            gradient = np.array([0, 0])
+
         '''
         if self.path_goal is None :
             gradient = np.array([0, 0])

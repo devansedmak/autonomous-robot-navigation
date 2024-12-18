@@ -7,23 +7,20 @@ from rclpy.qos import QoSProfile, DurabilityPolicy
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import TransformStamped
+
 import rclpy.time
 from tf_transformations import euler_from_quaternion
 import tf2_ros
-from core_occupancy_grid_costmap import occupancy_grid_costmap
-from core_search_path_planner import search_based_path_planning
-import matplotlib.pyplot as plt
 
 import numpy as np
-import random
 import time 
 
-class NavigationCostmap(Node):
+class SafePathFollower(Node):
     
     def __init__(self):
-        super().__init__('navigation_costmap', allow_undeclared_parameters=True, 
+        super().__init__('safe_path_follower', allow_undeclared_parameters=True, 
                          automatically_declare_parameters_from_overrides=True)
         
         # If needed in your design, define your node parameters
@@ -34,27 +31,9 @@ class NavigationCostmap(Node):
         self.goal_y = 0.0 # goal y-position
         
         # If needed in your design, get a node parameter for update rate
-        self.rate = 1.0 
+        self.rate = 10.0 
         rate = self.get_parameter('rate').value
-        self.rate = rate if rate is not None else self.rate
-
-        # Node Parameters
-        self.min_cost = 1.0 # Minimum cost in the range of [0, 100]
-        min_cost = self.get_parameter('min_cost').value
-        self.min_cost = min_cost if min_cost is not None else self.min_cost
-        self.max_cost = 100.0 # Maximum (unsafe) cost in the range of [0, 100]
-        max_cost = self.get_parameter('max_cost').value
-        self.max_cost = max_cost if max_cost is not None else self.max_cost
-        self.decay_rate = 1.0 # Decay rate for repulsive cost
-        decay_rate = self.get_parameter('decay_rate').value
-        self.decay_rate = decay_rate if decay_rate is not None else self.decay_rate 
-        self.safety_margin = 0.0 # Safety margin in meters
-        safety_margin = self.get_parameter('safety_margin').value
-        self.safety_margin = safety_margin if safety_margin is not None else self.safety_margin
-        self.occupancy_threshold = 0.0 # Occupancy probability threshold in the range of [0,1]
-        occupancy_threshold = self.get_parameter('occupancy_threshold').value
-        self.occupancy_threshold = occupancy_threshold if occupancy_threshold is not None else self.occupancy_threshold
-        self.costmap_msg = None
+        self.rate = rate if rate is not None else self.rate 
         
         # If needed in your design, create a subscriber to the pose topic
         self.pose_subscriber = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
@@ -74,11 +53,21 @@ class NavigationCostmap(Node):
         self.map_subscriber = self.create_subscription(OccupancyGrid, 'map', self.map_callback, qos_profile=map_qos_profile)
         self.map_msg = OccupancyGrid()
 
-        # Create a publisher for the costmap topic of type OccupancyGrid
+        # If needed in your design, create a subscriber to the costmap topic of message type nav_msgs.msg.OccupancyGrid
         costmap_qos_profile = QoSProfile(depth=1)
         costmap_qos_profile.durability = DurabilityPolicy.TRANSIENT_LOCAL
-        self.costmap_publisher = self.create_publisher(OccupancyGrid, 'costmap', qos_profile=costmap_qos_profile)
+        self.costmap_subscriber = self.create_subscription(OccupancyGrid, 'costmap', self.costmap_callback, qos_profile=costmap_qos_profile)
         self.costmap_msg = OccupancyGrid()
+
+        # If needed in your design, create a subscriber to the path topic of message type nav_msgs.msg.Path
+        path_qos_profile = QoSProfile(depth=1)
+        path_qos_profile.durability = DurabilityPolicy.TRANSIENT_LOCAL
+        self.path_subscriber = self.create_subscription(Path, 'path', self.path_callback, qos_profile=path_qos_profile)
+        self.path_msg = Path()
+
+        # Create a publisher for the cmd_vel topic of message type geometry_msgs.msg.Twist
+        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 1)
+        self.cmd_vel_msg = Twist()
 
         # If needed in your design, create a buffer and listener to the /tf topic 
         # to get transformations via self.tf_buffer.lookup_transform
@@ -92,6 +81,7 @@ class NavigationCostmap(Node):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
+        #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
@@ -101,6 +91,7 @@ class NavigationCostmap(Node):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
+        #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
@@ -109,58 +100,50 @@ class NavigationCostmap(Node):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
         """
+        #TODO: If needed, use the scan topic messages in your design 
         self.scan_msg = msg
 
-    def map_callback(self, occgrid_msg):
+    def map_callback(self, msg):
         """
         Callback function for the map topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        self.get_logger().info('Occupancy grid map is received!')
+        #TODO: If needed, use the map topic messages in your design
+        self.map_msg = msg
 
-        # Reshape the occupancy grid data into a 2D array
-        occupancy_matrix = np.array(occgrid_msg.data).reshape(occgrid_msg.info.height, occgrid_msg.info.width)
+    def costmap_callback(self, msg):
+        """
+        Callback function for the costmap topic, handling messages of type nav_msgs.msg.OccupancyGrid
+        """
+        #TODO: If needed, use the costmap topic messages in your design
+        self.costmap_msg = msg  
 
-        # Visualize the grid using Matplotlib
-        plt.figure(figsize=(10, 8))  # Adjust the figure size as needed
-        plt.imshow(occupancy_matrix, cmap='gray', origin='lower', vmin=np.min(occupancy_matrix), vmax=np.max(occupancy_matrix))  # Use 'gray' colormap for better contrast
-        plt.colorbar(label='Occupancy Probability')  # Add a color bar to interpret the values
-        plt.title('Occupancy Grid Map')
-        plt.xlabel('Width (cells)')
-        plt.ylabel('Height (cells)')
-        plt.show(block=False)  # Make plotting non-blocking
-        plt.pause(1)  # Allow time for the plot to render
-        
-        binary_occupancy_matrix = occupancy_matrix > 100 * self.occupancy_threshold
-
-        # Handle safety margins (for example)
-        safety_margin_in_cells = self.safety_margin / occgrid_msg.info.resolution
-        decay_rate_per_cell = self.decay_rate * occgrid_msg.info.resolution
-        cost_matrix = occupancy_grid_costmap.inverse_distance_costmap_exponential_decay(binary_occupancy_matrix, 
-                            safety_margin=safety_margin_in_cells,  
-                            decay_rate=decay_rate_per_cell,
-                            min_cost = self.min_cost,
-                            max_cost = self.max_cost)
-        cost_matrix = np.clip(cost_matrix, -127, +127)
-        cost_matrix = np.int8(cost_matrix)
-
-        # Publish the distance map
-        self.costmap_msg = occgrid_msg
-        self.costmap_msg.data = cost_matrix.flatten().tolist()
-        self.costmap_publisher.publish(self.costmap_msg)
-        self.get_logger().info('Costmap is published!')
+    def path_callback(self, msg):
+        """
+        Callback function for the path topic, handling messages of type nav_msgs.msg.Path
+        """
+        #TODO: If needed, use the path topic messages in your design
+        self.path_msg = msg            
 
     def timer_callback(self):
         """
         Callback function for peridic timer updates
         """
-        self.costmap_publisher.publish(self.costmap_msg)
+        #TODO: If needed, use the timer callbacks in your design 
+        
+         # For example, publish the cmd_vel message to directly go to the goal while rotating around itself
+        ctrl_gain = 0.1
+        const_ang_vel = 1.0
+        self.cmd_vel_msg.linear.x = np.dot([np.cos(self.pose_a), np.sin(self.pose_a)], [-ctrl_gain*(self.pose_x-self.goal_x), -ctrl_gain*(self.pose_y-self.goal_y)])
+        self.cmd_vel_msg.linear.y = np.dot([-np.sin(self.pose_a), np.cos(self.pose_a)], [-ctrl_gain*(self.pose_x-self.goal_x), -ctrl_gain*(self.pose_y-self.goal_y)])
+        self.cmd_vel_msg.angular.z = const_ang_vel
+        self.cmd_vel_pub.publish(self.cmd_vel_msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    navigation_costmap_node = NavigationCostmap()
+    safe_path_follower_node = SafePathFollower()
     try: 
-        rclpy.spin(navigation_costmap_node)
+        rclpy.spin(safe_path_follower_node)
     except KeyboardInterrupt:
         pass 
     # finally:   
