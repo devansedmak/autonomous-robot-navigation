@@ -114,7 +114,7 @@ class SearchBasedPathPlanner(Node):
         """
         Callback function for the costmap topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        self.costmap_msg = msg   
+        self.costmap_msg = msg  
 
     def timer_callback(self):
         """
@@ -164,16 +164,8 @@ class SearchBasedPathPlanner(Node):
         except nx.NodeNotFound as e:
             # Handle the case where the graph does not contain the required nodes
             self.get_logger().warn(f"A safe path does not exist!")
-
-        # For example, publish the straight path between the pose and the goal messages
-        '''
-        self.path_msg = Path()
-        self.path_msg.header.frame_id = 'world'
-        self.path_msg.header.stamp = self.get_clock().now().to_msg()
-        self.path_msg.poses.append(self.pose_msg)
-        self.path_msg.poses.append(self.goal_msg)
-        self.path_publisher.publish(self.path_msg)
-        '''
+        except ValueError as e:
+            self.get_logger().warn(f"Cost map still loadeding!")
 
 
 def main(args=None):

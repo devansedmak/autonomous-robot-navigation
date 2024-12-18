@@ -42,7 +42,7 @@ class NavigationCostmap(Node):
         self.min_cost = 1.0 # Minimum cost in the range of [0, 100]
         min_cost = self.get_parameter('min_cost').value
         self.min_cost = min_cost if min_cost is not None else self.min_cost
-        self.max_cost = 100.0 # Maximum (unsafe) cost in the range of [0, 100]
+        self.max_cost = 90.0 # Maximum (unsafe) cost in the range of [0, 100]
         max_cost = self.get_parameter('max_cost').value
         self.max_cost = max_cost if max_cost is not None else self.max_cost
         self.decay_rate = 1.0 # Decay rate for repulsive cost
