@@ -128,6 +128,134 @@ class SearchBasedPathPlanner(Node):
         self.path_publisher.publish(self.path_msg)
 
 
+class MotionGraph:
+    def __init__(self):
+        self.V = set()  # Set of vertices
+        self.E = set()  # Set of edges
+
+    def add_vertex(self, vertex):
+        self.V.add(vertex)
+
+    def add_edge(self, edge):
+        self.E.add(edge)
+
+    def __repr__(self):
+        return f"Vertices: {self.V}\nEdges: {self.E}"
+
+
+def weighted_posterior_sampling(costmap, num_samples):
+    """
+    Perform Weighted Posterior Sampling on a costmap.
+
+    Parameters:
+        costmap (np.ndarray): A 2D numpy array representing the cost map.
+        num_samples (int): The number of samples to generate.
+
+    Returns:
+        sampled_indices (np.ndarray): Array of sampled indices (row, col) based on weighted posterior sampling.
+    """
+    # Ensure the costmap is a numpy array
+    costmap = np.asarray(costmap)
+
+    # Calculate importance weights as the inverse of the costmap
+    importance_weights = 1.0 / (costmap + 1e-9)  # Add small value to avoid division by zero
+
+    # Normalize weights to form a probability distribution
+    importance_weights /= np.sum(importance_weights)
+
+    # Flatten the costmap and weights for sampling
+    flattened_weights = importance_weights.flatten()
+    flattened_indices = np.arange(flattened_weights.shape[0])
+
+    # Perform weighted sampling with replacement
+    sampled_flat_indices = np.random.choice(flattened_indices, size=num_samples, replace=True, p=flattened_weights)
+
+    # Convert flattened indices back to 2D indices
+    sampled_indices = np.unravel_index(sampled_flat_indices, costmap.shape)
+
+    # Stack the indices into (row, col) format
+    sampled_indices = np.stack(sampled_indices, axis=1)
+
+    # Remove indices where costmap value is 0
+    sampled_indices = np.array([idx for idx in sampled_indices if costmap[idx[0], idx[1]] != 0])
+
+    return sampled_indices
+
+
+
+def safety_verification_brehensam(costmap, idx1, idx2):
+    """
+    Verify if the given indices are safe using Brehensam's Line Algorithm.
+
+    Parameters:
+        costmap (np.ndarray): A 2D numpy array representing the cost map.
+        idx1 (tuple): First index (row, col) as a tuple.
+        idx2 (tuple): Second index (row, col) as a tuple.
+
+    Returns:
+        bool: True if safe, False otherwise.
+    """
+    # Calculate n using the formula in Brehensam's Line Algorithm
+    n = max(abs(idx1[0] - idx2[0]), abs(idx1[1] - idx2[1])) + 1
+
+    # Check if the path is safe by ensuring all intermediate points have non-zero cost
+    for step in range(n):
+        row = int(idx1[0] + step * (idx2[0] - idx1[0]) / (n - 1))
+        col = int(idx1[1] + step * (idx2[1] - idx1[1]) / (n - 1))
+        if costmap[row, col] == 0:
+            return False
+
+    return True
+
+
+
+def optimal_rrt(costmap, start_point, n):
+    """
+    Implement Optimal Rapidly Exploring Random Trees (RRT) algorithm.
+
+    Parameters:
+        costmap (np.ndarray): A 2D numpy array representing the cost map.
+        start_point (tuple): Starting point as (row, col).
+        n (int): Number of iterations.
+
+    Returns:
+        MotionGraph: The motion graph G = (V, E).
+    """
+    G = MotionGraph()
+    G.add_vertex(start_point)
+
+    sampled_indices = weighted_posterior_sampling(costmap, n)
+
+    for x_rand in sampled_indices:
+        x_nearest = min(G.V, key=lambda v: np.linalg.norm(np.array(v) - np.array(x_rand)))
+        #anche x_nearest è un indice mi sembra
+        x_new = tuple((np.array(x_nearest) + np.array(x_rand)) // 2)
+        #da definire come trovare x_new che dovrebbe essere un punto non un indice
+
+        if safety_verification_brehensam(costmap, x_new, x_nearest):
+            x_min = x_nearest
+            mincost = np.linalg.norm(np.array(start_point) - np.array(x_nearest)) + np.linalg.norm(np.array(x_nearest) - np.array(x_new))
+            #il costo è da riscrivere perchè stiamo usando sampled_indices che sono indici quindi bisogna
+            #trasformare da indice a mondo  
+            for x_near in G.V:
+                tempcost = np.linalg.norm(np.array(start_point) - np.array(x_near)) + np.linalg.norm(np.array(x_near) - np.array(x_new))
+                if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new):
+                    x_min, mincost = x_near, tempcost
+
+            G.add_vertex(x_new)
+            G.add_edge((x_min, x_new))
+
+            for x_near in G.V:
+                tempcost = np.linalg.norm(np.array(start_point) - np.array(x_new)) + np.linalg.norm(np.array(x_new) - np.array(x_near))
+                if tempcost < np.linalg.norm(np.array(start_point) - np.array(x_near)) and safety_verification_brehensam(costmap, x_new, x_near):
+                    G.E.discard((x_nearest, x_near))
+                    G.add_edge((x_new, x_near))
+
+    return G
+
+
+
+
 def main(args=None):
     rclpy.init(args=args)
     path_planner_node = SearchBasedPathPlanner()
