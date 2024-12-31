@@ -13,7 +13,7 @@ from geometry_msgs.msg import TransformStamped
 import rclpy.time
 from tf_transformations import euler_from_quaternion
 import tf2_ros
-
+from core_proj_nav_ctrl import proj_nav_tools
 import numpy as np
 import time 
 
@@ -72,6 +72,9 @@ class SearchBasedPathPlanner(Node):
 
         # If need in your design, crease a timer for periodic updates
         self.create_timer(1.0 / self.rate, self.timer_callback)
+        self.max_cost = 90 #max value of cost map
+        self.polygon_new_point = np.zeros((2,2))
+        self.d_parameter=10
 
     def pose_callback(self, msg):
         """
@@ -207,6 +210,33 @@ def safety_verification_brehensam(costmap, idx1, idx2):
 
     return True
 
+ 
+
+def point_projected(point, center, obstacols):
+    nearest= proj_nav_tools.local_nearest(obstacols, center)
+    convex_interior = proj_nav_tools.polygon_convex_interior(self.polygon_new_point, center)
+    d, self.proj_x, self.proj_y = proj_nav_tools.point_to_polygon_distance(point[0],point[1], convex_interior[:,0].astype(float), convex_interior[:,1].astype(float))
+    new_point = np [ round(self.proj_x), round(self.proj_y)]
+    return new_point
+
+def points_within_radius(points, center, radius):
+    """
+    Return a list of points that have a distance of exactly `radius` from the center.
+
+    Parameters:
+        points (list of tuples): List of points as (x, y) coordinates.
+        center (tuple): The center point as (x, y).
+        radius (float): The radius to check.
+
+    Returns:
+        list: List of points within the radius.
+    """
+    result = []
+    for point in points:
+        distance = np.linalg.norm(np.array(point) - np.array(center))
+        if np.isclose(distance, radius):
+            result.append(point)
+    return result
 
 
 def optimal_rrt(costmap, start_point, n):
@@ -220,24 +250,30 @@ def optimal_rrt(costmap, start_point, n):
 
     Returns:
         MotionGraph: The motion graph G = (V, E).
+
     """
+    max_cost_points = np.argwhere(costmap == self.max_cost)
     G = MotionGraph()
     G.add_vertex(start_point)
 
     sampled_indices = weighted_posterior_sampling(costmap, n)
+    i=0
 
     for x_rand in sampled_indices:
+        i=i+1
         x_nearest = min(G.V, key=lambda v: np.linalg.norm(np.array(v) - np.array(x_rand)))
         #anche x_nearest è un indice mi sembra
-        x_new = tuple((np.array(x_nearest) + np.array(x_rand)) // 2)
+        x_new = point_projected(x_rand, x_nearest, max_cost_points)
         #da definire come trovare x_new che dovrebbe essere un punto non un indice
+        radius = (math.log(i) / n) ** (1 / self.d_parameter)
 
         if safety_verification_brehensam(costmap, x_new, x_nearest):
             x_min = x_nearest
             mincost = np.linalg.norm(np.array(start_point) - np.array(x_nearest)) + np.linalg.norm(np.array(x_nearest) - np.array(x_new))
             #il costo è da riscrivere perchè stiamo usando sampled_indices che sono indici quindi bisogna
-            #trasformare da indice a mondo  
-            for x_near in G.V:
+            #trasformare da indice a mondo
+            x_neighbor= points_within_radius(sampled_indices, x_new, radius) 
+            for x_near in x_neighbor:
                 tempcost = np.linalg.norm(np.array(start_point) - np.array(x_near)) + np.linalg.norm(np.array(x_near) - np.array(x_new))
                 if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new):
                     x_min, mincost = x_near, tempcost
@@ -245,7 +281,7 @@ def optimal_rrt(costmap, start_point, n):
             G.add_vertex(x_new)
             G.add_edge((x_min, x_new))
 
-            for x_near in G.V:
+            for x_near in x_neighbor:
                 tempcost = np.linalg.norm(np.array(start_point) - np.array(x_new)) + np.linalg.norm(np.array(x_new) - np.array(x_near))
                 if tempcost < np.linalg.norm(np.array(start_point) - np.array(x_near)) and safety_verification_brehensam(costmap, x_new, x_near):
                     G.E.discard((x_nearest, x_near))
