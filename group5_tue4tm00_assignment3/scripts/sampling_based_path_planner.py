@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+import math
+import random
+from core_search_path_planner import search_based_path_planning
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -9,6 +12,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import TransformStamped
+import networkx as nx
 
 import rclpy.time
 from tf_transformations import euler_from_quaternion
@@ -73,14 +77,13 @@ class SearchBasedPathPlanner(Node):
         # If need in your design, crease a timer for periodic updates
         self.create_timer(1.0 / self.rate, self.timer_callback)
         self.max_cost = 90 #max value of cost map
-        self.polygon_new_point = np.zeros((2,2))
-        self.d_parameter=10
+        self.d_parameter = 10 # Parameter for adaptive selection of neibor size
+        self.n = 100 
 
     def pose_callback(self, msg):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
@@ -90,7 +93,6 @@ class SearchBasedPathPlanner(Node):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
@@ -99,52 +101,71 @@ class SearchBasedPathPlanner(Node):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
         """
-        #TODO: If needed, use the scan topic messages in your design 
         self.scan_msg = msg
 
     def map_callback(self, msg):
         """
         Callback function for the map topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        #TODO: If needed, use the map topic messages in your design
         self.map_msg = msg
 
     def costmap_callback(self, msg):
         """
         Callback function for the costmap topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        #TODO: If needed, use the costmap topic messages in your design
         self.costmap_msg = msg    
 
     def timer_callback(self):
         """
         Callback function for peridic timer updates
         """
-        #TODO: If needed, use the timer callbacks in your design 
+        if (self.pose_msg is None) or (self.goal_msg is None) or (self.costmap_msg is None):
+            return
         
-        # For example, publish the straight path between the pose and the goal messages 
-        self.path_msg = Path()
-        self.path_msg.header.frame_id = 'world'
-        self.path_msg.header.stamp = self.get_clock().now().to_msg()
-        self.path_msg.poses.append(self.pose_msg)
-        self.path_msg.poses.append(self.goal_msg)
-        self.path_publisher.publish(self.path_msg)
+        self.get_logger().info('Path is being searched...')
+        
+        start_position = np.asarray([self.pose_x, self.pose_y])
+        goal_position = np.asarray([self.goal_x, self.goal_y])
 
+        costmap_origin = np.asarray([self.costmap_msg.info.origin.position.x, self.costmap_msg.info.origin.position.y])
+        costmap_resolution = self.costmap_msg.info.resolution 
+        costmap_matrix = np.array(self.costmap_msg.data).reshape(self.costmap_msg.info.height, self.costmap_msg.info.width)
+        costmap_matrix = np.float64(costmap_matrix)
+        costmap_matrix[costmap_matrix>=self.max_cost] = -1
 
-class MotionGraph:
-    def __init__(self):
-        self.V = set()  # Set of vertices
-        self.E = set()  # Set of edges
+        start_cell = search_based_path_planning.world_to_grid(start_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+        goal_cell = search_based_path_planning.world_to_grid(goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
 
-    def add_vertex(self, vertex):
-        self.V.add(vertex)
+        graph = optimal_rrt(costmap_matrix, start_cell, self.n, self.d_parameter, self.max_cost)
 
-    def add_edge(self, edge):
-        self.E.add(edge)
+        try:
+            # Attempt to find the shortest path
 
-    def __repr__(self):
-        return f"Vertices: {self.V}\nEdges: {self.E}"
+            path_grid = dijkstra(graph, costmap_matrix, start_cell, random.choice(list(graph.nodes()))) # Da sostituire con goal_cell
+            path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
 
+            path_msg = Path()
+            path_msg.header.frame_id = 'world'
+            path_msg.header.stamp = self.get_clock().now().to_msg()
+
+            if path_world.size > 0:
+                path_msg.poses.append(self.pose_msg)
+                for waypoint in path_world:
+                    pose_msg = PoseStamped()
+                    pose_msg.header = path_msg.header
+                    pose_msg.pose.position.x = waypoint[0]
+                    pose_msg.pose.position.y = waypoint[1]
+                    path_msg.poses.append(pose_msg)
+                path_msg.poses.append(self.goal_msg)
+
+            self.path_publisher.publish(path_msg)
+            self.get_logger().info('Path is published!')
+
+        except nx.NodeNotFound:
+            # Handle the case where the graph does not contain the required nodes
+            self.get_logger().warn(f"A safe path does not exist!")
+        except ValueError:
+            self.get_logger().warn(f"Cost map still loadeding!")
 
 def weighted_posterior_sampling(costmap, num_samples):
     """
@@ -184,9 +205,7 @@ def weighted_posterior_sampling(costmap, num_samples):
 
     return sampled_indices
 
-
-
-def safety_verification_brehensam(costmap, idx1, idx2):
+def safety_verification_brehensam(costmap, idx1, idx2, max_cost):
     """
     Verify if the given indices are safe using Brehensam's Line Algorithm.
 
@@ -205,18 +224,41 @@ def safety_verification_brehensam(costmap, idx1, idx2):
     for step in range(n):
         row = int(idx1[0] + step * (idx2[0] - idx1[0]) / (n - 1))
         col = int(idx1[1] + step * (idx2[1] - idx1[1]) / (n - 1))
-        if costmap[row, col] == 0:
+        if costmap[row, col] >= max_cost:
             return False
-
+    
     return True
 
- 
+def local_cost(x, y, costmap):
+    n = max(abs(x[0] - y[0]), abs(x[1] - y[1])) + 1
 
-def point_projected(point, center, obstacols):
-    nearest= proj_nav_tools.local_nearest(obstacols, center)
-    convex_interior = proj_nav_tools.polygon_convex_interior(self.polygon_new_point, center)
-    d, self.proj_x, self.proj_y = proj_nav_tools.point_to_polygon_distance(point[0],point[1], convex_interior[:,0].astype(float), convex_interior[:,1].astype(float))
-    new_point = np [ round(self.proj_x), round(self.proj_y)]
+    touched_cells = []
+
+    for step in range(n):
+        row = int(x[0] + step * (y[0] - x[0]) / (n - 1))
+        col = int(x[1] + step * (y[1] - x[1]) / (n - 1))
+        touched_cells.append((row, col))
+
+    distance = np.linalg.norm(np.array(x) - np.array(y))
+
+    values = [costmap[row][col] for row, col in touched_cells]
+    media_cost=sum(values) / len(values) if values else 0
+    return distance*media_cost
+
+def dijkstra(graph, costmap_matrix, source_node, target_node):
+    try:
+        path = nx.dijkstra_path(graph, source_node, target_node)
+        path = np.unravel_index(path, costmap_matrix.shape)
+        path = np.column_stack((path[0], path[1]))
+    except nx.exception.NetworkXNoPath: 
+        path = np.zeros((0,2))
+
+    return path
+
+def point_projected(point, center, obstacles):
+    convex_interior = proj_nav_tools.polygon_convex_interior(obstacles , center)
+    _, proj_x, proj_y = proj_nav_tools.point_to_polygon_distance(point[0],point[1], convex_interior[:,0].astype(float), convex_interior[:,1].astype(float))
+    new_point = np [ round(proj_x), round(proj_y)]
     return new_point
 
 def points_within_radius(points, center, radius):
@@ -238,8 +280,7 @@ def points_within_radius(points, center, radius):
             result.append(point)
     return result
 
-
-def optimal_rrt(costmap, start_point, n):
+def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
     """
     Implement Optimal Rapidly Exploring Random Trees (RRT) algorithm.
 
@@ -252,45 +293,65 @@ def optimal_rrt(costmap, start_point, n):
         MotionGraph: The motion graph G = (V, E).
 
     """
-    max_cost_points = np.argwhere(costmap == self.max_cost)
-    G = MotionGraph()
-    G.add_vertex(start_point)
+    max_cost_points = np.argwhere(costmap == max_cost)
+    G = nx.Graph()
+    G.add_node(start_point)
 
     sampled_indices = weighted_posterior_sampling(costmap, n)
     i=0
 
     for x_rand in sampled_indices:
         i=i+1
-        x_nearest = min(G.V, key=lambda v: np.linalg.norm(np.array(v) - np.array(x_rand)))
+        x_nearest = min(G.nodes, key=lambda v: np.linalg.norm(np.array(v) - np.array(x_rand)))
         #anche x_nearest è un indice mi sembra
         x_new = point_projected(x_rand, x_nearest, max_cost_points)
         #da definire come trovare x_new che dovrebbe essere un punto non un indice
-        radius = (math.log(i) / n) ** (1 / self.d_parameter)
+        radius = (math.log(i) / n) ** (1 / d_parameter)
 
         if safety_verification_brehensam(costmap, x_new, x_nearest):
             x_min = x_nearest
-            mincost = np.linalg.norm(np.array(start_point) - np.array(x_nearest)) + np.linalg.norm(np.array(x_nearest) - np.array(x_new))
+            mincost = dijkstra(costmap, start_point, x_nearest) + local_cost(x_nearest, x_new, costmap)
             #il costo è da riscrivere perchè stiamo usando sampled_indices che sono indici quindi bisogna
             #trasformare da indice a mondo
-            x_neighbor= points_within_radius(sampled_indices, x_new, radius) 
+            x_neighbor = points_within_radius(G.nodes, x_new, radius) 
             for x_near in x_neighbor:
-                tempcost = np.linalg.norm(np.array(start_point) - np.array(x_near)) + np.linalg.norm(np.array(x_near) - np.array(x_new))
-                if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new):
+                tempcost = dijkstra(costmap, start_point, x_near) + local_cost(x_near, x_new, costmap)
+                if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new, max_cost):
                     x_min, mincost = x_near, tempcost
+            G.add_node(x_new)
+            G.add_edge(x_min, x_new, weight = local_cost(x_min, x_new))
 
-            G.add_vertex(x_new)
-            G.add_edge((x_min, x_new))
-
+            x_neighbor = points_within_radius(G.nodes, x_new, radius)
             for x_near in x_neighbor:
-                tempcost = np.linalg.norm(np.array(start_point) - np.array(x_new)) + np.linalg.norm(np.array(x_new) - np.array(x_near))
-                if tempcost < np.linalg.norm(np.array(start_point) - np.array(x_near)) and safety_verification_brehensam(costmap, x_new, x_near):
-                    G.E.discard((x_nearest, x_near))
-                    G.add_edge((x_new, x_near))
-
+                tempcost = dijkstra(costmap, start_point, x_new) + local_cost(x_near, x_new, costmap)
+                if tempcost < dijkstra(costmap, start_point, x_near) and safety_verification_brehensam(costmap, x_new, x_near):
+                    x_parent = parent(G, x_near, start_point, radius, costmap)
+                    G.remove_edge(x_parent, x_near)
+                    G.add_edge(x_new, x_near, weight = local_cost(x_new, x_near))
     return G
 
+def parent(G, x, x_ancestor, radius, costmap_matrix):
+    """
+    Find the parent of a vertex x with respect to its ancestor x_ancestor.
 
+    Parameters:
+        x (tuple): The vertex for which the parent is to be found.
+        x_ancestor (tuple): The ancestor vertex.
 
+    Returns:
+        tuple: The parent vertex of x.
+    """
+    neighbors = points_within_radius(G.nodes, x, radius)
+    min_cost = float('inf')
+    parent_vertex = None
+
+    for neighbor in neighbors:
+        cost = dijkstra(G, costmap_matrix, neighbor, x_ancestor)
+        if cost < min_cost:
+            min_cost = cost
+            parent_vertex = neighbor
+
+    return parent_vertex
 
 def main(args=None):
     rclpy.init(args=args)
