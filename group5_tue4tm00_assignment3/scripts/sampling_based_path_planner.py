@@ -120,30 +120,55 @@ class SearchBasedPathPlanner(Node):
         Callback function for peridic timer updates
         """
         if (self.pose_msg is None) or (self.goal_msg is None) or (self.costmap_msg is None):
+            self.get_logger().warn("Pose, goal, or costmap messages are not yet received. Skipping...")
             return
-        
+
         self.get_logger().info('Path is being searched...')
-        
+
         start_position = np.asarray([self.pose_x, self.pose_y])
         goal_position = np.asarray([self.goal_x, self.goal_y])
 
-        costmap_origin = np.asarray([self.costmap_msg.info.origin.position.x, self.costmap_msg.info.origin.position.y])
-        costmap_resolution = self.costmap_msg.info.resolution 
-        costmap_matrix = np.array(self.costmap_msg.data).reshape(self.costmap_msg.info.height, self.costmap_msg.info.width)
-        costmap_matrix = np.float64(costmap_matrix)
-        costmap_matrix[costmap_matrix>=self.max_cost] = -1
+        try:
+            # Check if the costmap has the necessary data
+            if (self.costmap_msg.info.origin is None or
+                self.costmap_msg.info.resolution is None or
+                not self.costmap_msg.data):
+                raise ValueError("Costmap message is incomplete or still computing.")
 
-        start_cell = search_based_path_planning.world_to_grid(start_position, origin=costmap_origin, resolution=costmap_resolution)[0]
-        goal_cell = search_based_path_planning.world_to_grid(goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+            # Extract costmap parameters
+            costmap_origin = np.asarray([self.costmap_msg.info.origin.position.x,
+                                            self.costmap_msg.info.origin.position.y])
+            costmap_resolution = self.costmap_msg.info.resolution
+            costmap_matrix = np.array(self.costmap_msg.data).reshape(
+                self.costmap_msg.info.height, self.costmap_msg.info.width
+            )
+            costmap_matrix = np.float64(costmap_matrix)
+            costmap_matrix[costmap_matrix >= self.max_cost] = -1
 
+        except ValueError as e:
+            self.get_logger().warn(f"Costmap processing failed: {str(e)}")
+            return
+        except AttributeError as e:
+            self.get_logger().warn(f"Costmap attributes missing or malformed: {str(e)}")
+            return
+
+        # Convert start and goal positions from world to grid
+        start_cell = search_based_path_planning.world_to_grid(
+        start_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+        goal_cell = search_based_path_planning.world_to_grid(
+        goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+
+        # Perform RRT path planning
         graph = optimal_rrt(costmap_matrix, start_cell, self.n, self.d_parameter, self.max_cost)
 
         try:
-            # Attempt to find the shortest path
+        # Attempt to find the shortest path
+            path_grid = dijkstra(graph, costmap_matrix, tuple(start_cell), tuple(goal_cell))
+            path_world = search_based_path_planning.grid_to_world(
+                path_grid, costmap_origin, costmap_resolution
+            )
 
-            path_grid = dijkstra(graph, costmap_matrix, start_cell, random.choice(list(graph.nodes()))) # Da sostituire con goal_cell
-            path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
-
+            # Construct Path message
             path_msg = Path()
             path_msg.header.frame_id = 'world'
             path_msg.header.stamp = self.get_clock().now().to_msg()
@@ -162,10 +187,9 @@ class SearchBasedPathPlanner(Node):
             self.get_logger().info('Path is published!')
 
         except nx.NodeNotFound:
-            # Handle the case where the graph does not contain the required nodes
-            self.get_logger().warn(f"A safe path does not exist!")
-        except ValueError:
-            self.get_logger().warn(f"Cost map still loadeding!")
+            self.get_logger().warn("A safe path does not exist!")
+        except ValueError as e:
+            self.get_logger().warn(f"Path planning failed: {str(e)}")
 
 def weighted_posterior_sampling(costmap, num_samples):
     """
@@ -295,7 +319,7 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
     """
     max_cost_points = np.argwhere(costmap == max_cost)
     G = nx.Graph()
-    G.add_node(start_point)
+    G.add_node(tuple(start_point))
 
     sampled_indices = weighted_posterior_sampling(costmap, n)
     i=0
@@ -310,24 +334,24 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
 
         if safety_verification_brehensam(costmap, x_new, x_nearest):
             x_min = x_nearest
-            mincost = dijkstra(costmap, start_point, x_nearest) + local_cost(x_nearest, x_new, costmap)
+            mincost = dijkstra(costmap, tuple(start_point), tuple(x_nearest)) + local_cost(x_nearest, x_new, costmap)
             #il costo è da riscrivere perchè stiamo usando sampled_indices che sono indici quindi bisogna
             #trasformare da indice a mondo
             x_neighbor = points_within_radius(G.nodes, x_new, radius) 
             for x_near in x_neighbor:
-                tempcost = dijkstra(costmap, start_point, x_near) + local_cost(x_near, x_new, costmap)
+                tempcost = dijkstra(costmap, tuple(start_point), tuple(x_near)) + local_cost(x_near, x_new, costmap)
                 if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new, max_cost):
                     x_min, mincost = x_near, tempcost
-            G.add_node(x_new)
-            G.add_edge(x_min, x_new, weight = local_cost(x_min, x_new))
+            G.add_node(tuple(x_new))
+            G.add_edge(tuple(x_min), tuple(x_new), weight = local_cost(x_min, x_new))
 
             x_neighbor = points_within_radius(G.nodes, x_new, radius)
             for x_near in x_neighbor:
-                tempcost = dijkstra(costmap, start_point, x_new) + local_cost(x_near, x_new, costmap)
-                if tempcost < dijkstra(costmap, start_point, x_near) and safety_verification_brehensam(costmap, x_new, x_near):
+                tempcost = dijkstra(costmap, tuple(start_point), tuple(x_new)) + local_cost(x_near, x_new, costmap)
+                if tempcost < dijkstra(costmap, tuple(start_point), tuple(x_near)) and safety_verification_brehensam(costmap, x_new, x_near):
                     x_parent = parent(G, x_near, start_point, radius, costmap)
-                    G.remove_edge(x_parent, x_near)
-                    G.add_edge(x_new, x_near, weight = local_cost(x_new, x_near))
+                    G.remove_edge(tuple(x_parent), tuple(x_near))
+                    G.add_edge(tuple(x_new), tuple(x_near), weight = local_cost(x_new, x_near))
     return G
 
 def parent(G, x, x_ancestor, radius, costmap_matrix):
@@ -346,7 +370,7 @@ def parent(G, x, x_ancestor, radius, costmap_matrix):
     parent_vertex = None
 
     for neighbor in neighbors:
-        cost = dijkstra(G, costmap_matrix, neighbor, x_ancestor)
+        cost = dijkstra(G, costmap_matrix, tuple(neighbor), tuple(x_ancestor))
         if cost < min_cost:
             min_cost = cost
             parent_vertex = neighbor
