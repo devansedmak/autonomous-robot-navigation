@@ -83,7 +83,7 @@ class SearchBasedPathPlanner(Node):
         self.create_timer(1.0 / self.rate, self.timer_callback)
         self.max_cost = 90 #max value of cost map
         self.d_parameter = 10 # Parameter for adaptive selection of neibor size
-        self.n = 15 
+        self.n = 18 
 
     def pose_callback(self, msg):
         """
@@ -99,11 +99,13 @@ class SearchBasedPathPlanner(Node):
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
         self.goal_msg = msg
-        if(self.goal_x == msg.pose.position.x and self.goal_y == msg.pose.position.y):
-            self.check_goal = False
-        else:
-            self.goal_x = msg.pose.position.x
-            self.goal_y = msg.pose.position.y
+        if(self.goal_x != msg.pose.position.x or self.goal_y != msg.pose.position.y):
+            self.check_goal = True
+            print("è cambiato il goal")
+            time.sleep(5)
+        
+        self.goal_x = msg.pose.position.x
+        self.goal_y = msg.pose.position.y
     
     def scan_callback(self, msg):
         """
@@ -138,37 +140,38 @@ class SearchBasedPathPlanner(Node):
             print("Goal still not loaded properly")
             return
 
-        if self.check_graph:
-            try:
-                # Check if the costmap has the necessary data
-                if (self.costmap_msg.info.origin is None or
-                    self.costmap_msg.info.resolution is None or
-                    not self.costmap_msg.data):
-                    raise ValueError("Costmap message is incomplete or still computing.")
-
-                # Extract costmap parameters
-                costmap_origin = np.asarray([self.costmap_msg.info.origin.position.x,
-                                                self.costmap_msg.info.origin.position.y])
-                costmap_resolution = self.costmap_msg.info.resolution
-                costmap_matrix = np.array(self.costmap_msg.data).reshape(
-                    self.costmap_msg.info.height, self.costmap_msg.info.width
-                )
-                costmap_matrix = np.float64(costmap_matrix)
-                costmap_matrix[costmap_matrix < 0] = self.max_cost
         
-            except ValueError as e:
-                self.get_logger().warn(f"Costmap processing failed: {str(e)}")
-                return
-            except AttributeError as e:
-                self.get_logger().warn(f"Costmap attributes missing or malformed: {str(e)}")
-                return
+        try:
+            # Check if the costmap has the necessary data
+            if (self.costmap_msg.info.origin is None or
+                self.costmap_msg.info.resolution is None or
+                not self.costmap_msg.data):
+                raise ValueError("Costmap message is incomplete or still computing.")
 
-            # Convert start and goal positions from world to grid
-            start_cell = search_based_path_planning.world_to_grid(
-            start_position, origin=costmap_origin, resolution=costmap_resolution)[0]
-            goal_cell = search_based_path_planning.world_to_grid(
-            goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
-            
+            # Extract costmap parameters
+            costmap_origin = np.asarray([self.costmap_msg.info.origin.position.x,
+                                            self.costmap_msg.info.origin.position.y])
+            costmap_resolution = self.costmap_msg.info.resolution
+            costmap_matrix = np.array(self.costmap_msg.data).reshape(
+                self.costmap_msg.info.height, self.costmap_msg.info.width
+            )
+            costmap_matrix = np.float64(costmap_matrix)
+            costmap_matrix[costmap_matrix < 0] = self.max_cost
+    
+        except ValueError as e:
+            self.get_logger().warn(f"Costmap processing failed: {str(e)}")
+            return
+        except AttributeError as e:
+            self.get_logger().warn(f"Costmap attributes missing or malformed: {str(e)}")
+            return
+
+        # Convert start and goal positions from world to grid
+        start_cell = search_based_path_planning.world_to_grid(
+        start_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+        goal_cell = search_based_path_planning.world_to_grid(
+        goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
+        
+        if self.check_graph:
             # Perform RRT path planning
             self.graph = optimal_rrt(costmap_matrix, start_cell, self.n, self.d_parameter, self.max_cost)
             self.check_graph = False
@@ -176,6 +179,8 @@ class SearchBasedPathPlanner(Node):
 
         if self.check_goal or self.check:
             self.get_logger().info('Path is being searched...')
+            if self.check_goal:
+                self.check_goal=False
             try:
                 # Attempt to find the shortest path
                 x_nearest = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - goal_cell))
@@ -193,15 +198,11 @@ class SearchBasedPathPlanner(Node):
 
                 if path_world.size > 0:
                     path_msg.poses.append(self.pose_msg)
-                    for waypoint in path_world:
-                        pose_msg = PoseStamped()
-                        pose_msg.header = path_msg.header
-                        pose_msg.pose.position.x = waypoint[0]
-                        pose_msg.pose.position.y = waypoint[1]
-                        path_msg.poses.append(pose_msg)
+                    
                     
                     if safety_verification_brehensam(costmap_matrix, goal_cell, x_nearest, self.max_cost):
-                        path_msg.poses.append(self.goal_msg)
+                        #path_msg.poses.append(self.goal_msg)
+                        path_grid.append(goal_cell)
                         print(path_world)
                     else:
                         
@@ -209,14 +210,15 @@ class SearchBasedPathPlanner(Node):
                         self.graph = informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
                         print("ho fatto rrt informed")
                         path_grid, length= dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
-                        path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
+                        
                         print(path_world)
-                        for waypoint in path_world:
-                            pose_msg = PoseStamped()
-                            pose_msg.header = path_msg.header
-                            pose_msg.pose.position.x = waypoint[0]
-                            pose_msg.pose.position.y = waypoint[1]
-                            path_msg.poses.append(pose_msg)
+                    path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)  
+                    for waypoint in path_world:
+                        pose_msg = PoseStamped()
+                        pose_msg.header = path_msg.header
+                        pose_msg.pose.position.x = waypoint[0]
+                        pose_msg.pose.position.y = waypoint[1]
+                        path_msg.poses.append(pose_msg)
                 else:
                     print("path_world null")
                     print(path_world)
@@ -308,10 +310,12 @@ def goal_weighted_sampling(costmap, goal_position, num_samples, max_cost):
 
     # Calculate distance from each cell to the goal
     goal_row, goal_col = goal_position
-    distances = np.sqrt((grid_y - goal_row) ** 2 + (grid_x - goal_col) ** 2)
+    #distances = np.sqrt((grid_y - goal_row) ** 2 + (grid_x - goal_col) ** 2)
+    distances = (grid_y - goal_row) ** 2 + (grid_x - goal_col) ** 2
 
     # Compute weights: inverse of the costmap and proximity to the goal
-    importance_weights = (1.0 / (costmap + 1e-9)) * (1.0 / (distances + 1e-9))
+    #importance_weights = (1.0 / (costmap + 1e-9)) * (1.0 / (distances + 1e-9))
+    importance_weights =( 1.0 / (distances + 1e-9))**(1/4)
 
     # Mask out cells with costs higher than max_cost
     importance_weights[costmap > max_cost] = 0
@@ -567,8 +571,8 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
     G=graph
     
     # Genera punti campionati
-    #sampled_indices = goal_weighted_sampling(costmap, goal_position, n, max_cost)
-    sampled_indices = weighted_posterior_sampling(costmap, n, max_cost)
+    sampled_indices = goal_weighted_sampling(costmap, goal_position, n, max_cost)
+    #sampled_indices = weighted_posterior_sampling(costmap, n, max_cost)
     for i, x_rand in enumerate(sampled_indices, start=1):
         # Converte x_rand in tupla se necessario
         x_rand = tuple(x_rand)
