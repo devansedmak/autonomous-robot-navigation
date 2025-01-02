@@ -204,6 +204,7 @@ class SearchBasedPathPlanner(Node):
                         path_msg.poses.append(self.goal_msg)
                         print(path_world)
                     else:
+                        
                         print("i used informed rrt!!!!!!!!!!!!")
                         self.graph = informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
                         print("ho fatto rrt informed")
