@@ -179,7 +179,8 @@ class SearchBasedPathPlanner(Node):
             try:
                 # Attempt to find the shortest path
                 x_nearest = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - goal_cell))
-                print("trovato nearest ")
+                print("trovato nearest " )
+                print(search_based_path_planning.grid_to_world( x_nearest, costmap_origin, costmap_resolution))
                 path_grid, length= dijkstra_path(self.graph, tuple(start_cell), tuple(x_nearest))
                 path_world = search_based_path_planning.grid_to_world(
                     path_grid, costmap_origin, costmap_resolution
@@ -204,8 +205,17 @@ class SearchBasedPathPlanner(Node):
                         print(path_world)
                     else:
                         print("i used informed rrt!!!!!!!!!!!!")
-                        informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
+                        self.graph = informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
+                        print("ho fatto rrt informed")
+                        path_grid, length= dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
+                        path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
                         print(path_world)
+                        for waypoint in path_world:
+                            pose_msg = PoseStamped()
+                            pose_msg.header = path_msg.header
+                            pose_msg.pose.position.x = waypoint[0]
+                            pose_msg.pose.position.y = waypoint[1]
+                            path_msg.poses.append(pose_msg)
                 else:
                     print("path_world null")
                     print(path_world)
@@ -509,7 +519,8 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
                 # Converte x_near in tupla se necessario
                 x_near = tuple(x_near)
 
-                path, tempcost = dijkstra_path(G, tuple(start_point), tuple(x_near)) + local_cost(x_near, x_new, costmap)
+                path, tempcost = dijkstra_path(G, tuple(start_point), tuple(x_near)) 
+                tempcost=tempcost+ local_cost(x_near, x_new, costmap)
                 if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new, max_cost):
                     x_min, mincost = x_near, tempcost
 
@@ -522,7 +533,8 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
                 # Converte x_near in tupla se necessario
                 x_near = tuple(x_near)
 
-                path, tempcost = dijkstra_path(G,  tuple(start_point), tuple(x_new)) + local_cost(x_near, x_new, costmap)
+                path, tempcost = dijkstra_path(G,  tuple(start_point), tuple(x_new)) 
+                tempcost=tempcost+local_cost(x_near, x_new, costmap)
                 path, length = dijkstra_path(G, tuple(start_point), tuple(x_near))
                 if tempcost < length and safety_verification_brehensam(costmap, x_new, x_near, max_cost):
                     x_parent = parent(G, x_near, start_point, radius, costmap)
@@ -554,8 +566,8 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
     G=graph
     
     # Genera punti campionati
-    sampled_indices = goal_weighted_sampling(costmap, goal_position, n, max_cost)
-
+    #sampled_indices = goal_weighted_sampling(costmap, goal_position, n, max_cost)
+    sampled_indices = weighted_posterior_sampling(costmap, n, max_cost)
     for i, x_rand in enumerate(sampled_indices, start=1):
         # Converte x_rand in tupla se necessario
         x_rand = tuple(x_rand)
@@ -604,17 +616,20 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
                 # Converte x_near in tupla se necessario
                 x_near = tuple(x_near)
 
-                path, tempcost = dijkstra_path(G,  tuple(start_point), tuple(x_new)) + local_cost(x_near, x_new, costmap)
+                path, tempcost = dijkstra_path(G,  tuple(start_point), tuple(x_new)) 
+                tempcost=tempcost+local_cost(x_near, x_new, costmap)
                 path, length = dijkstra_path(G, tuple(start_point), tuple(x_near))
                 if tempcost < length and safety_verification_brehensam(costmap, x_new, x_near, max_cost):
                     x_parent = parent(G, x_near, start_point, radius, costmap)
                     G.remove_edge(x_parent, x_near)
                     G.add_edge(x_new, x_near, weight=local_cost(x_new, x_near, costmap))
+            print("non ho ancora trovato un collegamento")
             if safety_verification_brehensam(costmap, goal_position, x_new, max_cost):
                 G.add_node(tuple(goal_position))
                 G.add_edge(tuple(goal_position), x_new, weight=local_cost(goal_position, x_new, costmap))
                 print("esiste un collegamento")
                 return G 
+        print("non trovo nodi safe")
     return G
 
 
