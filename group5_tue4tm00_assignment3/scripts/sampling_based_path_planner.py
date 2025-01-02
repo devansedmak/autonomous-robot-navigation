@@ -83,7 +83,7 @@ class SearchBasedPathPlanner(Node):
         self.create_timer(1.0 / self.rate, self.timer_callback)
         self.max_cost = 90 #max value of cost map
         self.d_parameter = 10 # Parameter for adaptive selection of neibor size
-        self.n = 200 
+        self.n = 15 
 
     def pose_callback(self, msg):
         """
@@ -172,13 +172,14 @@ class SearchBasedPathPlanner(Node):
             # Perform RRT path planning
             self.graph = optimal_rrt(costmap_matrix, start_cell, self.n, self.d_parameter, self.max_cost)
             self.check_graph = False
+            print("fatto rrt")
 
         if self.check_goal or self.check:
             self.get_logger().info('Path is being searched...')
             try:
                 # Attempt to find the shortest path
                 x_nearest = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - goal_cell))
-
+                print("trovato nearest ")
                 path_grid, length= dijkstra_path(self.graph, tuple(start_cell), tuple(x_nearest))
                 path_world = search_based_path_planning.grid_to_world(
                     path_grid, costmap_origin, costmap_resolution
@@ -200,9 +201,11 @@ class SearchBasedPathPlanner(Node):
                     
                     if safety_verification_brehensam(costmap_matrix, goal_cell, x_nearest, self.max_cost):
                         path_msg.poses.append(self.goal_msg)
+                        print(path_world)
                     else:
-                        print("Not safe connection")
-                    print(path_world)
+                        print("i used informed rrt!!!!!!!!!!!!")
+                        informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
+                        print(path_world)
                 else:
                     print("path_world null")
                     print(path_world)
@@ -267,6 +270,70 @@ def weighted_posterior_sampling(costmap, num_samples, max_cost):
         valid_indices.extend([idx for idx in sampled_indices if costmap[idx[0], idx[1]] < max_cost])
 
     return np.array(valid_indices[:num_samples])
+
+
+def goal_weighted_sampling(costmap, goal_position, num_samples, max_cost):
+    """
+    Perform sampling on a costmap with higher density near the goal position.
+
+    Parameters:
+        costmap (np.ndarray): A 2D numpy array representing the cost map.
+        goal_position (tuple): The (row, col) coordinates of the goal position.
+        num_samples (int): The number of samples to generate.
+        max_cost (float): Maximum allowable cost for sampling.
+
+    Returns:
+        sampled_indices (np.ndarray): Array of sampled indices (row, col).
+    """
+    # Ensure the costmap is a numpy array
+    costmap = np.asarray(costmap)
+
+    # Replace negative or NaN values with a high cost
+    costmap = np.where((costmap < 0) | (np.isnan(costmap)), np.inf, costmap)
+
+    # Create a grid of coordinates
+    rows, cols = costmap.shape
+    grid_y, grid_x = np.meshgrid(np.arange(rows), np.arange(cols), indexing='ij')
+
+    # Calculate distance from each cell to the goal
+    goal_row, goal_col = goal_position
+    distances = np.sqrt((grid_y - goal_row) ** 2 + (grid_x - goal_col) ** 2)
+
+    # Compute weights: inverse of the costmap and proximity to the goal
+    importance_weights = (1.0 / (costmap + 1e-9)) * (1.0 / (distances + 1e-9))
+
+    # Mask out cells with costs higher than max_cost
+    importance_weights[costmap > max_cost] = 0
+
+    # Normalize weights to form a probability distribution
+    total_weight = np.sum(importance_weights)
+    if total_weight <= 0:
+        raise ValueError("Costmap weights cannot be normalized: sum is zero or negative.")
+    importance_weights /= total_weight
+
+    # Flatten the weights and costmap for sampling
+    flattened_weights = importance_weights.flatten()
+    flattened_indices = np.arange(flattened_weights.shape[0])
+
+    # Perform initial sampling
+    sampled_flat_indices = np.random.choice(flattened_indices, size=num_samples, replace=True, p=flattened_weights)
+    sampled_indices = np.unravel_index(sampled_flat_indices, costmap.shape)
+    sampled_indices = np.stack(sampled_indices, axis=1)
+
+    # Filter out indices where costmap value is 0 or exceeds max_cost
+    valid_indices = [idx for idx in sampled_indices if costmap[idx[0], idx[1]] < max_cost]
+
+    # Repeat sampling until enough valid indices are collected
+    while len(valid_indices) < num_samples:
+        additional_samples = num_samples - len(valid_indices)
+        sampled_flat_indices = np.random.choice(flattened_indices, size=additional_samples, replace=True, p=flattened_weights)
+        sampled_indices = np.unravel_index(sampled_flat_indices, costmap.shape)
+        sampled_indices = np.stack(sampled_indices, axis=1)
+        valid_indices.extend([idx for idx in sampled_indices if costmap[idx[0], idx[1]] < max_cost])
+
+    # Return exactly the required number of samples
+    return np.array(valid_indices[:num_samples])
+
 
 def dijkstra_path(graph, source, target):
     # Priority queue per i nodi da esplorare
@@ -358,7 +425,9 @@ def local_cost(x, y, costmap):
     return distance*media_cost
 
 def point_projected(point, center, obstacles):
+
     #print(obstacles)
+    obstacles=obstacles.astype(float)
     convex_interior = proj_nav_tools.polygon_convex_interior(obstacles, center) # Qui c'è un errore
     _, proj_x, proj_y = proj_nav_tools.point_to_polygon_distance(point[0],point[1], convex_interior[:,0].astype(float), convex_interior[:,1].astype(float))
     new_point = (int(np.round(proj_x)), int(np.round(proj_y)))
@@ -412,9 +481,16 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
 
         # Trova il nodo più vicino a x_rand nel grafo
         x_nearest = min(G.nodes, key=lambda v: np.linalg.norm(np.array(v) - np.array(x_rand)))
-
+        
         # Proietta il punto x_rand verso x_nearest
         x_new = point_projected(x_rand, x_nearest, max_cost_points)
+        
+        #print("x_rand")
+        #print(x_rand)
+        #print("x_nearest")
+        #print(x_nearest)
+        #print("max_cost_points")
+        #print(max_cost_points)
         x_new = tuple(x_new)  # Converti in tupla hashable
 
         # Calcola il raggio per il rewire
@@ -453,6 +529,92 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
                     G.remove_edge(x_parent, x_near)
                     G.add_edge(x_new, x_near, weight=local_cost(x_new, x_near, costmap))
 
+    return G
+
+
+def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_position, graph):
+    """
+    Implement Optimal Rapidly Exploring Random Trees (RRT) algorithm.
+
+    Parameters:
+        costmap (np.ndarray): A 2D numpy array representing the cost map.
+        start_point (tuple): Starting point as (row, col).
+        n (int): Number of iterations.
+
+    Returns:
+        MotionGraph: The motion graph G = (V, E).
+    """
+    # Trova punti con costo massimo nella costmap
+    max_cost_points = np.argwhere(costmap >= max_cost)
+    print("eccomi qua")
+
+    # Crea il grafo
+    #G = nx.Graph()
+    #G.add_node(tuple(start_point))
+    G=graph
+    
+    # Genera punti campionati
+    sampled_indices = goal_weighted_sampling(costmap, goal_position, n, max_cost)
+
+    for i, x_rand in enumerate(sampled_indices, start=1):
+        # Converte x_rand in tupla se necessario
+        x_rand = tuple(x_rand)
+
+        # Trova il nodo più vicino a x_rand nel grafo
+        x_nearest = min(G.nodes, key=lambda v: np.linalg.norm(np.array(v) - np.array(x_rand)))
+        #print("èqui l'errore?")
+        # Proietta il punto x_rand verso x_nearest
+        x_new = point_projected(x_rand, x_nearest, max_cost_points)
+        
+        #print("x_rand")
+        #print(x_rand)
+        #print("x_nearest")
+        #print(x_nearest)
+        #print("max_cost_points")
+        #print(max_cost_points)
+        x_new = tuple(x_new)  # Converti in tupla hashable
+
+        # Calcola il raggio per il rewire
+        radius = (math.log(i) / n) ** (1 / d_parameter)
+
+        # Verifica la sicurezza del collegamento
+        if safety_verification_brehensam(costmap, x_new, x_nearest, max_cost):
+            x_min = x_nearest
+            path, cost = dijkstra_path(G, tuple(start_point), tuple(x_nearest)) 
+            mincost = cost + local_cost(x_nearest, tuple(x_new), tuple(costmap))
+
+            # Trova nodi vicini a x_new
+            x_neighbors = points_within_radius(G.nodes, x_new, radius)
+
+            for x_near in x_neighbors:
+                # Converte x_near in tupla se necessario
+                x_near = tuple(x_near)
+
+                path, tempcost = dijkstra_path(G, tuple(start_point), tuple(x_near)) 
+                tempcost=tempcost+ local_cost(x_near, x_new, costmap)
+                if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new, max_cost):
+                    x_min, mincost = x_near, tempcost
+            
+            # Aggiungi il nodo e il collegamento al grafo
+            G.add_node(tuple(x_new))
+            G.add_edge(x_min, x_new, weight=local_cost(x_min, x_new, costmap))
+
+            # Aggiorna i collegamenti dei vicini
+            for x_near in x_neighbors:
+                # Converte x_near in tupla se necessario
+                x_near = tuple(x_near)
+
+                path, tempcost = dijkstra_path(G,  tuple(start_point), tuple(x_new)) + local_cost(x_near, x_new, costmap)
+                path, length = dijkstra_path(G, tuple(start_point), tuple(x_near))
+                if tempcost < length and safety_verification_brehensam(costmap, x_new, x_near, max_cost):
+                    x_parent = parent(G, x_near, start_point, radius, costmap)
+                    G.remove_edge(x_parent, x_near)
+                    G.add_edge(x_new, x_near, weight=local_cost(x_new, x_near, costmap))
+            if safety_verification_brehensam(costmap, goal_position, x_new, max_cost):
+                G.add_node(tuple(goal_position))
+                G.add_edge(tuple(goal_position), x_new, weight=local_cost(goal_position, x_new, costmap))
+                print("esiste un collegamento")
+                return G 
     return G
 
 
