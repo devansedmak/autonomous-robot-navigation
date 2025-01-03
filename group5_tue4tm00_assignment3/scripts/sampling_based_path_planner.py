@@ -127,16 +127,13 @@ class SearchBasedPathPlanner(Node):
             self.get_logger().warn("Pose, goal, or costmap messages are not yet received. Skipping...")
             return
 
-        # Extract the start and goal positions
         start_position = np.asarray([self.pose_x, self.pose_y])
         goal_position = np.asarray([self.goal_x, self.goal_y])
 
-        # Check if the goal has been loaded properly
         if np.array_equal(goal_position, np.asarray([0, 0])):
             print("Goal still not loaded properly")
             return
 
-        # Check if the costmap has been loaded properly
         try:
             # Check if the costmap has the necessary data
             if (self.costmap_msg.info.origin is None or
@@ -167,63 +164,67 @@ class SearchBasedPathPlanner(Node):
         goal_cell = search_based_path_planning.world_to_grid(
         goal_position, origin=costmap_origin, resolution=costmap_resolution)[0]
         
-        # Check if the graph has been created
         if self.check_graph:
             # Perform RRT path planning
             self.graph = tools3.optimal_rrt(costmap_matrix, start_cell, self.n, self.d_parameter, self.max_cost)
             self.check_graph = False
+            print("fatto rrt")
 
-        # Check if the path has been found or the goal has changed
         if self.check_goal or self.check:
             self.get_logger().info('Path is being searched...')
             if self.check_goal:
-                self.check_goal = False
+                self.check_goal=False
             try:
-                # Find the nearest node to the goal
-                x_nearest = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - goal_cell))
-                
-                # Check if the connection between the nearest node and the goal is safe
-                safe_check = False
-                if tools3.safety_verification_brehensam(costmap_matrix, goal_cell, x_nearest, self.max_cost):
-                    safe_check = True
-
                 # Attempt to find the shortest path
-                path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(x_nearest))
-                path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
+                x_nearest = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - goal_cell))
+                print("trovato nearest " )
+                print(search_based_path_planning.grid_to_world( x_nearest, costmap_origin, costmap_resolution))
+                
+                #path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)
+                
 
                 # Construct Path message
                 path_msg = Path()
                 path_msg.header.frame_id = 'world'
                 path_msg.header.stamp = self.get_clock().now().to_msg()
+                
+                if tools3.safety_verification_brehensam(costmap_matrix, goal_cell, x_nearest, self.max_cost):
+                    #path_msg.poses.append(self.goal_msg)
+                    path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(x_nearest))
+                    path_grid.append(goal_cell)
+                    print()
+                    #print(path_world)
+                else:
+                        
+                    print("i used informed rrt!!!!!!!!!!!!")
+                    self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
+                    print("ho fatto rrt informed")
+                    path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
+                        
+                    #print(path_world)
+                path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)  
+                
+                for waypoint in path_world:
+                    pose_msg = PoseStamped()
+                    pose_msg.header = path_msg.header
+                    pose_msg.pose.position.x = waypoint[0]
+                    pose_msg.pose.position.y = waypoint[1]
+                    path_msg.poses.append(pose_msg)
 
                 if path_world.size > 0:
-                    path_msg.poses.append(self.pose_msg)
-                    
-                    if safe_check:
-                        path_grid.append(goal_cell)
-                        safe_check = False
-                    else:
-                        print("i used informed rrt!!!!!!!!!!!!")
-                        self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
-                        print("ho fatto rrt informed")
-                        path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
-                    
-                    # Convert the path from grid to world coordinates
-                    path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)  
-                    for waypoint in path_world:
-                        pose_msg = PoseStamped()
-                        pose_msg.header = path_msg.header
-                        pose_msg.pose.position.x = waypoint[0]
-                        pose_msg.pose.position.y = waypoint[1]
-                        path_msg.poses.append(pose_msg)
+                    #path_msg.poses.append(self.pose_msg)
+                    print(path_world)
 
-                self.path_publisher.publish(path_msg) # Publish the path
+                else:
+                    print("path_world null")
+                    print(path_world)
+                self.path_publisher.publish(path_msg)
                 self.get_logger().info('Path is published!')
-                self.check = False # Path has been found
+                self.check = False
             except nx.NodeNotFound:
                 self.get_logger().warn("A safe path does not exist!")
             except ValueError as e:
-                self.get_logger().warn(f"Path planning failed: {str(e)}")   
+                self.get_logger().warn(f"Path planning failed: {str(e)}")  
 
 def main(args=None):
     rclpy.init(args=args)

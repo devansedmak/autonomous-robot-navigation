@@ -275,7 +275,7 @@ class SafePathFollower(Node):
                 
         else:
             # Compute the gradient and scale it by the negative gain
-            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1, repulsive_tolerance=0.0, repulsive_threshold_decay=5.0)        
+            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.2, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
         # Transform velocity
         velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
         
