@@ -1,1 +1,0 @@
-/home/matteo/group5_tue4tm00_ws/src/tue4tm00_group5/group5_tue4tm00_assignment3/scripts/sampling_based_path_planner.py
