@@ -46,7 +46,7 @@ class SafePathFollower(Node):
 
         self.check = False # Check for initialization issues
         self.positions = np.empty((0, 2)) # Is an array that contains all the positions that the robot takes
-        self.goal_change = False # Check to know when the goal changes
+        #self.goal_change = False # Check to know when the goal changes
 
         # Node parameter for update rate
         self.rate = 10.0 
@@ -149,8 +149,6 @@ class SafePathFollower(Node):
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
         self.goal_msg = msg
-        if  self.goal_x != msg.pose.position.x or self.goal_y != msg.pose.position.y:
-            self.goal_change = True         # If the goal is changed
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
     
@@ -253,23 +251,26 @@ class SafePathFollower(Node):
         """
         # Update the plot
         self.plot_update()
+        self.path = self.current_path
 
         # Define correctly the parameters and variables
         ctrl_gain = 0.3
         position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
         const_ang_vel = 0.0
-
+        """
         # Checks if the path is found, needed for initialization issues
         if self.path_goal is not None:
             self.check = True
-        
+       
         # If the path is not found or the goal is changed the robot remain stopped waiting for a valid path
         if self.path_goal is None or self.goal_change: 
             gradient = np.array([0, 0])                
             if self.goal_change:
                 print("check")
+                self.goal_change = False
+                self.path = self.current_path
             self.path = self.current_path           
-            self.goal_change = False
+            #self.goal_change = False
             if self.check:
                 print("Replanning needed. Replanning...")
                 
@@ -278,10 +279,19 @@ class SafePathFollower(Node):
             gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.2, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
         # Transform velocity
         velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
-        
-        self.cmd_vel.linear.x = float(velocity_body.flatten()[0])
-        self.cmd_vel.linear.y = float(velocity_body.flatten()[1])
-        self.cmd_vel.angular.z = const_ang_vel
+        """
+        if self.path_goal is not None:
+            # Compute the gradient and scale it by the negative gain
+            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.2, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
+            # Transform velocity
+            velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
+            self.cmd_vel.linear.x = float(velocity_body.flatten()[0])
+            self.cmd_vel.linear.y = float(velocity_body.flatten()[1])
+            self.cmd_vel.angular.z = const_ang_vel
+        else:
+            self.cmd_vel.linear.x = 0.0
+            self.cmd_vel.linear.y = 0.0
+            self.cmd_vel.angular.z = const_ang_vel
 
         self.cmd_vel_pub.publish(self.cmd_vel)
 
