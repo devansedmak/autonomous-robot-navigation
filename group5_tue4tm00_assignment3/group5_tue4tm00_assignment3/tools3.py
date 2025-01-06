@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 import heapq
 import networkx as nx
@@ -256,7 +257,9 @@ def point_projected(point, center, obstacles):
         tuple: The projected point as (x, y).
     """
     obstacles=obstacles.astype(float)
-    convex_interior = proj_nav_tools.polygon_convex_interior(obstacles, center) 
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        convex_interior = proj_nav_tools.polygon_convex_interior(obstacles, center)
     _, proj_x, proj_y = proj_nav_tools.point_to_polygon_distance(point[0],point[1], convex_interior[:,0].astype(float), convex_interior[:,1].astype(float))
     new_point = (int(np.round(proj_x)), int(np.round(proj_y)))
     return new_point
@@ -294,7 +297,6 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
     """
     # Find points with maximum cost in the costmap
     max_cost_points = np.argwhere(costmap >= max_cost)
-    print("eccomi qua")
 
     # Create the graph
     G = nx.Graph()
@@ -312,7 +314,7 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
         x_new = point_projected(x_rand, x_nearest, max_cost_points)
         x_new = tuple(x_new)  # Convert to tuple
 
-        radius = (math.log(i) / n) ** (1 / d_parameter) # Calculate radius for rewire
+        radius = (math.log(i) / i) ** (1 / d_parameter) # Calculate radius for rewire
 
         # Verify the safety of the connection
         if safety_verification_brehensam(costmap, x_new, x_nearest, max_cost):
@@ -396,7 +398,7 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
                 x_near = tuple(x_near) # Convert x_near to tuple
                 # Calculate the cost of the path
                 path, tempcost = dijkstra_path(G, tuple(start_point), tuple(x_near)) 
-                tempcost=tempcost+ local_cost(x_near, x_new, costmap)
+                tempcost = tempcost+ local_cost(x_near, x_new, costmap)
                 if tempcost < mincost and safety_verification_brehensam(costmap, x_near, x_new, max_cost):
                     x_min, mincost = x_near, tempcost
             
@@ -409,19 +411,16 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
                 x_near = tuple(x_near) # Convert x_near to tuple
                 # Calculate the cost of the path
                 path, tempcost = dijkstra_path(G,  tuple(start_point), tuple(x_new)) 
-                tempcost=tempcost+local_cost(x_near, x_new, costmap)
+                tempcost = tempcost+local_cost(x_near, x_new, costmap)
                 path, length = dijkstra_path(G, tuple(start_point), tuple(x_near))
                 if tempcost < length and safety_verification_brehensam(costmap, x_new, x_near, max_cost):
                     x_parent = parent(G, x_near, start_point, radius, costmap)
                     G.remove_edge(x_parent, x_near)
                     G.add_edge(x_new, x_near, weight=local_cost(x_new, x_near, costmap))
-            print("non ho ancora trovato un collegamento")
             if safety_verification_brehensam(costmap, goal_position, x_new, max_cost):
                 G.add_node(tuple(goal_position))
                 G.add_edge(tuple(goal_position), x_new, weight=local_cost(goal_position, x_new, costmap))
-                print("esiste un collegamento")
                 return G 
-        print("non trovo nodi safe")
     return G
 
 def parent(G, x, x_ancestor, radius):

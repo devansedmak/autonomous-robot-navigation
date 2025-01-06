@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import warnings
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -40,13 +41,11 @@ class SafePathFollower(Node):
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.path = np.zeros((0,2)) # Path
-        self.current_path = np.zeros((0,2)) # Path
         self.path_goal = np.zeros((1,2))
         self.r = 0.2
 
         self.check = False # Check for initialization issues
         self.positions = np.empty((0, 2)) # Is an array that contains all the positions that the robot takes
-        #self.goal_change = False # Check to know when the goal changes
 
         # Node parameter for update rate
         self.rate = 10.0 
@@ -83,7 +82,6 @@ class SafePathFollower(Node):
         self.path_plot_options = {key: param.value for key, param in path_plot_options.items()} if path_plot_options else self.path_plot_options
         path_goal_plot_options = self.get_parameters_by_prefix('path_goal_plot_options')
         self.path_goal_plot_options = {key: param.value for key, param in path_goal_plot_options.items()} if path_goal_plot_options else self.path_goal_plot_options
-        #
         self.positions_plot_options = {'color': 'g', 'linewidth':1.0} # Refer to **kwargs of matplotlib.pyplot.plot
         positions_plot_options = self.get_parameters_by_prefix('positions_plot_options')
         self.positions_plot_options = {key: param.value for key, param in positions_plot_options.items()} if positions_plot_options else self.positions_plot_options
@@ -193,7 +191,7 @@ class SafePathFollower(Node):
         path_points = []
         for pose_stamped in path_msg.poses:
             path_points.append([pose_stamped.pose.position.x, pose_stamped.pose.position.y])
-        self.current_path = np.asarray(path_points)           
+        self.path = np.asarray(path_points)           
 
     def plot_start(self):
         # Create figure for visualization
@@ -223,8 +221,10 @@ class SafePathFollower(Node):
         # Update figure
 
         self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        self.convex_interior = tools.polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
-        self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            self.convex_interior = tools.polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
+            self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
 
         if self.path_goal is not None:
             self.path_goal_plot.set_data(self.path_goal[0], self.path_goal[1])
@@ -251,35 +251,12 @@ class SafePathFollower(Node):
         """
         # Update the plot
         self.plot_update()
-        self.path = self.current_path
 
         # Define correctly the parameters and variables
         ctrl_gain = 0.3
         position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
         const_ang_vel = 0.0
-        """
-        # Checks if the path is found, needed for initialization issues
-        if self.path_goal is not None:
-            self.check = True
-       
-        # If the path is not found or the goal is changed the robot remain stopped waiting for a valid path
-        if self.path_goal is None or self.goal_change: 
-            gradient = np.array([0, 0])                
-            if self.goal_change:
-                print("check")
-                self.goal_change = False
-                self.path = self.current_path
-            self.path = self.current_path           
-            #self.goal_change = False
-            if self.check:
-                print("Replanning needed. Replanning...")
-                
-        else:
-            # Compute the gradient and scale it by the negative gain
-            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.2, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
-        # Transform velocity
-        velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
-        """
+
         if self.path_goal is not None:
             # Compute the gradient and scale it by the negative gain
             gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.2, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
