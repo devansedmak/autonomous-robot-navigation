@@ -191,6 +191,10 @@ class SafePathFollower(Node):
         path_points = []
         for pose_stamped in path_msg.poses:
             path_points.append([pose_stamped.pose.position.x, pose_stamped.pose.position.y])
+        path = np.asarray(path_points)
+        if not np.array_equal(path, self.path):  # Check if the path is diffent than the previous one
+            self.positions = np.empty((0, 2))   # Reset the positions array
+            self.positions_plot.set_data([], [])
         self.path = np.asarray(path_points)           
 
     def plot_start(self):
@@ -259,7 +263,7 @@ class SafePathFollower(Node):
 
         if self.path_goal is not None:
             # Compute the gradient and scale it by the negative gain
-            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.2, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
+            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.0, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
             # Transform velocity
             velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
             self.cmd_vel.linear.x = float(velocity_body.flatten()[0])

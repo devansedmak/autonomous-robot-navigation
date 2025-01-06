@@ -225,7 +225,10 @@ class SearchBasedPathPlanner(Node):
                 if tools3.safety_verification_brehensam(costmap_matrix, goal_cell, x_nearest, self.max_cost):
                     self.graph.add_node(tuple(goal_cell))
                     self.graph.add_edge(tuple(x_nearest), tuple(goal_cell), weight=tools3.local_cost(x_nearest, goal_cell, costmap_matrix))
-                    path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
+                    try:
+                        path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
+                    except KeyError:
+                        raise nx.NodeNotFound
                 else:
                     if costmap_matrix[goal_cell[1], goal_cell[0]] == self.max_cost:
                         raise nx.NodeNotFound
@@ -250,6 +253,7 @@ class SearchBasedPathPlanner(Node):
                 self.check = False
             except nx.NodeNotFound:
                 self.get_logger().warn("A safe path does not exist!")
+                self.path_publisher.publish(path_msg) # Publish empty path
             except ValueError as e:
                 self.get_logger().warn(f"Path planning failed: {str(e)}")  
 
