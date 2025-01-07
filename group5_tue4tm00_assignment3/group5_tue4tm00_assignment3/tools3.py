@@ -348,7 +348,6 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
                 path, length = dijkstra_path(G, tuple(start_point), tuple(x_near))
                 if tempcost < length and safety_verification_brehensam(costmap, x_new, x_near, max_cost):
                     x_parent = parent(G, x_near, start_point, radius)
-                    print(tuple(x_parent))
                     G.remove_edge(tuple(x_parent), tuple(x_near))
                     G.add_edge(tuple(x_new), tuple(x_near), weight=local_cost(x_new, x_near, costmap))
     return G

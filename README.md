@@ -17,4 +17,4 @@ First assignment finished: Safe Robot Teleoperation & Safe Reactive Navigation
 
 Second assignment finished: Search-Based Path Planning & Safe Path Following
 
-Third assignment in progress: Sampling-Based Optimal Path Planning \& Safe Path Following
+Third assignment finished: Sampling-Based Optimal Path Planning \& Safe Path Following
