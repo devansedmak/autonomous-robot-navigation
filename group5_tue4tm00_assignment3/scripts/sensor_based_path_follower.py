@@ -257,14 +257,15 @@ class SafePathFollower(Node):
         self.plot_update()
 
         # Define correctly the parameters and variables
-        ctrl_gain = 0.3
+        ctrl_gain = 1.4
         position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
         const_ang_vel = 0.0
 
         if self.path_goal is not None:
             # Compute the gradient and scale it by the negative gain
-            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.0, repulsive_tolerance=0.0, repulsive_threshold_decay=7.0)        
+            #gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential(position, (self.path_goal).astype(float), self.nearest_points, attractive_strength=1.4, repulsive_tolerance=0.0, repulsive_threshold_decay=8.0)        
             # Transform velocity
+            gradient = -ctrl_gain*grad_nav_tools.gradient_navigation_potential_attractive(position, (self.path_goal).astype(float), strength=1.0)
             velocity_body = grad_nav_tools.velocity_world_to_body_2D(gradient, self.pose_a)
             self.cmd_vel.linear.x = float(velocity_body.flatten()[0])
             self.cmd_vel.linear.y = float(velocity_body.flatten()[1])

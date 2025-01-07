@@ -260,7 +260,9 @@ def point_projected(point, center, obstacles):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         convex_interior = proj_nav_tools.polygon_convex_interior(obstacles, center)
-    _, proj_x, proj_y = proj_nav_tools.point_to_polygon_distance(point[0],point[1], convex_interior[:,0].astype(float), convex_interior[:,1].astype(float))
+    distance , proj_x, proj_y = proj_nav_tools.point_to_polygon_distance(point[0],point[1], convex_interior[:,0].astype(float), convex_interior[:,1].astype(float))
+    if distance <0 : 
+        return point
     new_point = (int(np.round(proj_x)), int(np.round(proj_y)))
     return new_point
 
@@ -279,7 +281,7 @@ def points_within_radius(points, center, radius):
     result = []
     for point in points:
         distance = np.linalg.norm(np.array(point) - np.array(center))
-        if np.isclose(distance, radius):
+        if  distance < radius*10:
             result.append(point)
     return result
 
@@ -336,7 +338,7 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
             # Add the node and edge to the graph
             G.add_node(tuple(x_new))
             G.add_edge(x_min, x_new, weight=local_cost(x_min, x_new, costmap))
-
+            x_neighbors = points_within_radius(G.nodes, x_new, radius)
             # Update the connections of the neighbors
             for x_near in x_neighbors:
                 x_near = tuple(x_near) # Convert x_near to tuple
@@ -345,9 +347,10 @@ def optimal_rrt(costmap, start_point, n, d_parameter, max_cost):
                 tempcost=tempcost+local_cost(x_near, x_new, costmap)
                 path, length = dijkstra_path(G, tuple(start_point), tuple(x_near))
                 if tempcost < length and safety_verification_brehensam(costmap, x_new, x_near, max_cost):
-                    x_parent = parent(G, x_near, start_point, radius, costmap)
-                    G.remove_edge(x_parent, x_near)
-                    G.add_edge(x_new, x_near, weight=local_cost(x_new, x_near, costmap))
+                    x_parent = parent(G, x_near, start_point, radius)
+                    print(tuple(x_parent))
+                    G.remove_edge(tuple(x_parent), tuple(x_near))
+                    G.add_edge(tuple(x_new), tuple(x_near), weight=local_cost(x_new, x_near, costmap))
     return G
 
 def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_position, graph):
@@ -414,7 +417,7 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
                 tempcost = tempcost+local_cost(x_near, x_new, costmap)
                 path, length = dijkstra_path(G, tuple(start_point), tuple(x_near))
                 if tempcost < length and safety_verification_brehensam(costmap, x_new, x_near, max_cost):
-                    x_parent = parent(G, x_near, start_point, radius, costmap)
+                    x_parent = parent(G, x_near, start_point, radius)
                     G.remove_edge(x_parent, x_near)
                     G.add_edge(x_new, x_near, weight=local_cost(x_new, x_near, costmap))
             if safety_verification_brehensam(costmap, goal_position, x_new, max_cost):
@@ -436,7 +439,8 @@ def parent(G, x, x_ancestor, radius):
     Returns:
         tuple: The parent vertex of x.
     """
-    neighbors = points_within_radius(G.nodes, x, radius)
+    #neighbors = points_within_radius(G.nodes, x, radius)
+    neighbors= G.neighbors(x)
     min_cost = float('inf')
     parent_vertex = None
 
