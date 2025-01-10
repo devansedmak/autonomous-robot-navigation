@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Twist
@@ -9,8 +9,14 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import TransformStamped
 import rclpy.time
+from tf_transformations import euler_from_quaternion
 import tf2_ros
+import matplotlib.pyplot as plt
+from core_occupancy_grid_costmap import occupancy_grid_costmap
+
+import numpy as np
 import random
+import time 
 
 class Costmap(Node):
     
@@ -28,7 +34,25 @@ class Costmap(Node):
         # If needed in your design, get a node parameter for update rate
         self.rate = 1.0 
         rate = self.get_parameter('rate').value
-        self.rate = rate if rate is not None else self.rate 
+        self.rate = rate if rate is not None else self.rate
+
+        # Node Parameters
+        self.min_cost = 1.0 # Minimum cost in the range of [0, 100]
+        min_cost = self.get_parameter('min_cost').value
+        self.min_cost = min_cost if min_cost is not None else self.min_cost
+        self.max_cost = 90.0 # Maximum (unsafe) cost in the range of [0, 100]
+        max_cost = self.get_parameter('max_cost').value
+        self.max_cost = max_cost if max_cost is not None else self.max_cost
+        self.decay_rate = 5.0 # Decay rate for repulsive cost
+        decay_rate = self.get_parameter('decay_rate').value
+        self.decay_rate = decay_rate if decay_rate is not None else self.decay_rate 
+        self.safety_margin = 0.2 # Safety margin in meters
+        safety_margin = self.get_parameter('safety_margin').value
+        self.safety_margin = safety_margin if safety_margin is not None else self.safety_margin
+        self.occupancy_threshold = 0.01 # Occupancy probability threshold in the range of [0,1]
+        occupancy_threshold = self.get_parameter('occupancy_threshold').value
+        self.occupancy_threshold = occupancy_threshold if occupancy_threshold is not None else self.occupancy_threshold
+        self.costmap_msg = None
         
         # If needed in your design, create a subscriber to the pose topic
         self.pose_subscriber = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
@@ -68,6 +92,9 @@ class Costmap(Node):
         """
         #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
+        self.pose_x = msg.pose.position.x
+        self.pose_y = msg.pose.position.y
+        self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
 
     def goal_callback(self, msg):
         """
@@ -75,6 +102,8 @@ class Costmap(Node):
         """
         #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
+        self.goal_x = msg.pose.position.x
+        self.goal_y = msg.pose.position.y
     
     def scan_callback(self, msg):
         """
@@ -83,12 +112,43 @@ class Costmap(Node):
         #TODO: If needed, use the scan topic messages in your design
         self.scan_msg = msg
 
-    def map_callback(self, msg):
+    def map_callback(self, occgrid_msg):
         """
         Callback function for the map topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        #TODO: If needed, use the map topic messages in your design
-        self.map_msg = msg
+        self.get_logger().info('Occupancy grid map is received!')
+
+        # Reshape the occupancy grid data into a 2D array
+        occupancy_matrix = np.array(occgrid_msg.data).reshape(occgrid_msg.info.height, occgrid_msg.info.width)
+        '''
+        # Visualize the grid using Matplotlib
+        plt.figure(figsize=(10, 8))  # Adjust the figure size as needed
+        plt.imshow(occupancy_matrix, cmap='gray', origin='lower', vmin=np.min(occupancy_matrix), vmax=np.max(occupancy_matrix))  # Use 'gray' colormap for better contrast
+        plt.colorbar(label='Occupancy Probability')  # Add a color bar to interpret the values
+        plt.title('Occupancy Grid Map')
+        plt.xlabel('Width (cells)')
+        plt.ylabel('Height (cells)')
+        plt.show(block=False)  # Make plotting non-blocking
+        plt.pause(1)  # Allow time for the plot to render
+        '''
+        binary_occupancy_matrix = occupancy_matrix > 100 * self.occupancy_threshold
+
+        # Handle safety margins (for example)
+        safety_margin_in_cells = self.safety_margin / occgrid_msg.info.resolution
+        decay_rate_per_cell = self.decay_rate * occgrid_msg.info.resolution
+        cost_matrix = occupancy_grid_costmap.inverse_distance_costmap_exponential_decay(binary_occupancy_matrix, 
+                            safety_margin=safety_margin_in_cells,  
+                            decay_rate=decay_rate_per_cell,
+                            min_cost = self.min_cost,
+                            max_cost = self.max_cost)
+        cost_matrix = np.clip(cost_matrix, -127, +127)
+        cost_matrix = np.int8(cost_matrix)
+
+        # Publish the distance map
+        self.costmap_msg = occgrid_msg
+        self.costmap_msg.data = cost_matrix.flatten().tolist()
+        self.costmap_publisher.publish(self.costmap_msg)
+        self.get_logger().info('Costmap is published!')
 
     def timer_callback(self):
         """
@@ -97,8 +157,6 @@ class Costmap(Node):
         #TODO: If needed, use the timer callbacks in your design 
         
         # For example, publish random costmap with the same settings as the map message 
-        self.costmap_msg = self.map_msg
-        self.costmap_msg.data = [random.randint(0, 100) for _ in range(len(self.costmap_msg.data))]
         self.costmap_publisher.publish(self.costmap_msg)
 
 
@@ -109,6 +167,9 @@ def main(args=None):
         rclpy.spin(costmap_node)
     except KeyboardInterrupt:
         pass 
+    # finally:   
+    #     navigation_costmap_node.destroy_node()
+    #     rclpy.shutdown()
 
 
 if __name__ == '__main__':

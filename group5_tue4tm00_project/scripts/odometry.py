@@ -6,6 +6,8 @@ import rclpy.qos
 from geometry_msgs.msg import PoseStamped, Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
+from tf_transformations import euler_from_quaternion, quaternion_from_euler 
+from core_odometry_tools import odometry
 
 class Odometry(Node):
     
@@ -14,9 +16,11 @@ class Odometry(Node):
                          automatically_declare_parameters_from_overrides=True)
         
          # If needed in your design, define your node parameters
-        self.pose_x = 0.0 # robot x-position
-        self.pose_y = 0.0 # robot y-position
-        self.pose_a = 0.0 # robot yaw angle
+        self.pose_x = None # x-position in meters
+        self.pose_y = None # y-position in meters
+        self.pose_a = None # yaw angle in radians
+        self.lin_vel = 0.0 # linear velocity in m/s
+        self.ang_vel = 0.0 # angular velocity in m/s
        
         # Default Parameters
         self.rate = 10.0
@@ -82,15 +86,18 @@ class Odometry(Node):
         """
         Callback function for the input pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the input pose topic messages in your design
-        self.pose_in_msg = msg
+        self.pose_x = msg.pose.position.x
+        self.pose_y = msg.pose.position.y
+        self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
+        self.pose_out_msg = msg
 
     def cmd_vel_callback(self, msg):
         """
         Callback function for the input control velocity topic, handling messages of type geometry_msgs.msg.Twist
         """
         #TODO: If needed, use the cmd_vel topic messages in your design
-        self.cmd_vel_msg = msg
+        self.lin_vel = msg.linear.x
+        self.ang_vel = msg.angular.z
     
     def scan_callback(self, msg):
         """
@@ -112,8 +119,23 @@ class Odometry(Node):
         """
         #TODO: If needed, use the timer callbacks in your design 
         
-        # For example, publish the latest input pose as the output pose message 
-        self.pose_out_publisher.publish(self.pose_in_msg)
+        # Update odometry
+        if self.pose_x is None:
+            return
+        
+        self.pose_x, self.pose_y, self.pose_a = odometry.unicycle_odometry_Euler(
+            self.pose_x, self.pose_y, self.pose_a, self.lin_vel, self.ang_vel, delta_t = 1.0/self.rate)
+        self.pose_out_msg.header.stamp = self.get_clock().now().to_msg()
+        self.pose_out_msg.pose.position.x = self.pose_x
+        self.pose_out_msg.pose.position.y = self.pose_y
+        self.pose_out_msg.pose.position.z = 0.0
+        q = quaternion_from_euler(0.0,0.0,self.pose_a, axes='sxyz')
+        self.pose_out_msg.pose.orientation.x = q[0]
+        self.pose_out_msg.pose.orientation.y = q[1]
+        self.pose_out_msg.pose.orientation.z = q[2]
+        self.pose_out_msg.pose.orientation.w = q[3]
+
+        self.pose_out_publisher.publish(self.pose_out_msg)
 
 
 def main(args=None):
