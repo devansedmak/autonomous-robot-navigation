@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import warnings
+
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -9,9 +9,10 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import TransformStamped
-from core_grad_nav_ctrl import grad_nav_tools
+import warnings
 import matplotlib.pyplot as plt 
 import matplotlib.patches as patches
+from core_grad_nav_ctrl import grad_nav_tools
 from core_proj_nav_ctrl import proj_nav_tools
 from group5_tue4tm00_assignment1 import tools
 from group5_tue4tm00_assignment2 import tools_2
@@ -29,19 +30,22 @@ class SafePathFollower(Node):
         super().__init__('safe_path_follower', allow_undeclared_parameters=True, 
                          automatically_declare_parameters_from_overrides=True)
         
-        # Node parameters
+        # If needed in your design, define your node parameters
         self.pose_x = 0.0 # robot x-position
         self.pose_y = 0.0 # robot y-position
         self.pose_a = 0.0 # robot yaw angle
         self.goal_x = 0.0 # goal x-position
         self.goal_y = 0.0 # goal y-position
+        self.path_goal = np.zeros((1,2))
+        self.scan_points = np.zeros((2,2)) # Valid scan points
+        self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.scan_pose_x = 0.0 # scan x-position
         self.scan_pose_y = 0.0 # scan y-position
         self.scan_pose_a = 0.0 # scan yaw angle
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.path = np.zeros((0,2)) # Path
-        self.path_goal = np.zeros((1,2))
+        
         self.r = 0.2
         self.lin_gain=1.0
         lin_gain = self.get_parameter('lin_gain').value
@@ -58,8 +62,8 @@ class SafePathFollower(Node):
         rate = self.get_parameter('rate').value
         self.rate = rate if rate is not None else self.rate 
         
-        self.figure_options = {'figwidth': 4.0, 'figheight': 4.0} # Refer to **kwargs of matplotlib.figure.Figure
-        self.axes_options = {'aspect': 'equal', 'xlim': (-3.0,3.0), 'ylim':(-3.0, 3.0)} # Refer to **kwargs of matplotlib.axes.Axes
+        self.figure_options = {'figwidth': 8.0, 'figheight': 8.0} # Refer to **kwargs of matplotlib.figure.Figure
+        self.axes_options = {'aspect': 'equal', 'xlim': (-14.0,14.0), 'ylim':(-9.5, 9.5)} # Refer to **kwargs of matplotlib.axes.Axes
         self.grid_options = {'visible': True, 'linewidth': 0.5} # Refer to **kwargs of matplotlib.axes.Axes.grid
         self.plot_options = {'color': 'r', 'marker': 'o', 'linestyle': '', 'markersize': 2.0} # Refer to **kwargs of matplotlib.pyplot.plot
         self.quiver_options = {'scale': 1.0, 'angles': 'xy', 'scale_units': 'xy'} # Refer to **kwargs of matplotlib.pyplot.quiver
@@ -92,13 +96,8 @@ class SafePathFollower(Node):
         positions_plot_options = self.get_parameters_by_prefix('positions_plot_options')
         self.positions_plot_options = {key: param.value for key, param in positions_plot_options.items()} if positions_plot_options else self.positions_plot_options
         
-        # If needed in your design, get a node parameter for update rate
-        self.rate = 10.0 
-        rate = self.get_parameter('rate').value
-        self.rate = rate if rate is not None else self.rate 
-        
         # If needed in your design, create a subscriber to the pose topic
-        self.pose_subscriber = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
+        self.pose_subscriber = self.create_subscription(PoseStamped, 'odom_pose', self.pose_callback, 1)
         self.pose_msg = PoseStamped()
 
         # If needed in your design, create a subscriber to the goal topic
@@ -124,7 +123,7 @@ class SafePathFollower(Node):
         # If needed in your design, create a subscriber to the path topic of message type nav_msgs.msg.Path
         path_qos_profile = QoSProfile(depth=1)
         path_qos_profile.durability = DurabilityPolicy.TRANSIENT_LOCAL
-        self.path_subscriber = self.create_subscription(Path, 'path', self.path_callback, qos_profile=path_qos_profile)
+        self.path_subscriber = self.create_subscription(Path, '/turtlebot/path', self.path_callback, qos_profile=path_qos_profile)
         self.path_msg = Path()
 
         # Create a publisher for the cmd_vel topic of message type geometry_msgs.msg.Twist
@@ -136,6 +135,7 @@ class SafePathFollower(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
+        # Start the plot
         self.plot_start()
 
         # If need in your design, crease a timer for periodic updates
@@ -150,8 +150,6 @@ class SafePathFollower(Node):
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
         self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
-        new_position = np.array([[self.pose_x, self.pose_y]])
-        self.positions = np.vstack([self.positions, new_position])
 
     def goal_callback(self, msg):
         """
@@ -184,6 +182,8 @@ class SafePathFollower(Node):
         self.scan_points = scan_points[scan_valid,:]
         self.scan_polygon = scan_points
 
+        self.scan_msg = scan_msg
+
     def map_callback(self, msg):
         """
         Callback function for the map topic, handling messages of type nav_msgs.msg.OccupancyGrid
@@ -196,20 +196,22 @@ class SafePathFollower(Node):
         Callback function for the costmap topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
         #TODO: If needed, use the costmap topic messages in your design
+    
         self.costmap_msg = msg  
 
     def path_callback(self, path_msg):
         """
         Callback function for the path topic, handling messages of type nav_msgs.msg.Path
         """
+        #TODO: If needed, use the path topic messages in your design
+        print("i'm inside path callback")
+
+        self.path_msg = path_msg  
         path_points = []
         for pose_stamped in path_msg.poses:
             path_points.append([pose_stamped.pose.position.x, pose_stamped.pose.position.y])
-        path = np.asarray(path_points)
-        if not np.array_equal(path, self.path):  # Check if the path is diffent than the previous one
-            self.positions = np.empty((0, 2))   # Reset the positions array
-            self.positions_plot.set_data([], [])
-        self.path = np.asarray(path_points)             
+        self.path = np.asarray(path_points)          
+        print(self.path)
 
     def plot_start(self):
         # Create figure for visualization
@@ -239,10 +241,8 @@ class SafePathFollower(Node):
         # Update figure
 
         self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            self.convex_interior = tools.polygon_convex_interior_safe(self.scan_polygon, [self.scan_pose_x, self.scan_pose_y], self.r)
-            self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
+        self.convex_interior = tools.polygon_convex_interior_safe(self.nearest_points, [self.scan_pose_x, self.scan_pose_y], self.r)
+        self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
 
         if self.path_goal is not None:
             self.path_goal_plot.set_data(self.path_goal[0], self.path_goal[1])
@@ -261,31 +261,49 @@ class SafePathFollower(Node):
         self.quiver.set(offsets=(self.scan_pose_x,self.scan_pose_y))
         self.nearest_scan_scatter.set_offsets(np.c_[self.nearest_points[:,0], self.nearest_points[:,1]])
         self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events() 
-
+        self.fig.canvas.flush_events()   
+        
     def timer_callback(self):
         """
         Callback function for peridic timer updates
         """
-        #TODO: If needed, use the timer callbacks in your design 
+        print("i arrived")
+         # Update the plot
         self.plot_update()
-
-        position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
+        #TODO: If needed, use the timer callbacks in your design 
+        #self.plot_update()
         
-        if self.path_goal is not None:
-            gradient = -grad_nav_tools.gradient_navigation_potential_attractive(position, (self.path_goal).astype(float), strength=1.0)
-            lin_vel, ang_vel = grad_nav_tools.unicycle_gradient_ctrl_2D(gradient, self.pose_a, lin_gain=self.lin_gain, ang_gain=self.ang_gain)
-        
-            self.cmd_vel.linear.x = lin_vel[0]
-            self.cmd_vel.angular.y = 0.0
-            self.cmd_vel.angular.z = ang_vel[0]
-        else:
+        #print("this is the path from timer callback")
+        #print(self.path)
+        # if self.path_goal is not None: #PROVARE CON QUESTAAAAA
+        if self.path is None or len(self.path_msg.poses) == 0:
+            print("la path è vuota")
+            #print(self.path)
             self.cmd_vel.linear.x = 0.0
             self.cmd_vel.linear.y = 0.0
             self.cmd_vel.angular.z = 0.0
-
+        else:
+            position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
+            #print("i arrived over position")
+            #self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
+            #print(self.nearest_points)
+            #self.convex_interior = tools.polygon_convex_interior_safe(self.nearest_points, [self.scan_pose_x, self.scan_pose_y], self.r)
+            #self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
+            gradient = -grad_nav_tools.gradient_navigation_potential_attractive(position, (self.path_goal).astype(float), strength=1.0)
+            lin_vel, ang_vel = grad_nav_tools.unicycle_gradient_ctrl_2D(gradient, self.pose_a, lin_gain=self.lin_gain, ang_gain=self.ang_gain)
+            
+            if np.abs(lin_vel[0]) > 0.26:
+                self.cmd_vel.linear.x = 0.26*lin_vel[0]/np.abs(lin_vel[0])
+            else:
+                self.cmd_vel.linear.x = lin_vel[0]
+            self.cmd_vel.angular.y = 0.0
+            if np.abs(ang_vel[0]) > 1.82:
+                self.cmd_vel.angular.z = 1.82*ang_vel[0]/np.abs(ang_vel[0])
+            else:
+                self.cmd_vel.angular.z = ang_vel[0]
+        
         self.cmd_vel_pub.publish(self.cmd_vel)
-
+        print(self.cmd_vel)
 
 def main(args=None):
     rclpy.init(args=args)

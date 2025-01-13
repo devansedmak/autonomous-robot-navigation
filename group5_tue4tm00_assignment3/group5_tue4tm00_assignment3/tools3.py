@@ -281,7 +281,9 @@ def points_within_radius(points, center, radius):
     result = []
     for point in points:
         distance = np.linalg.norm(np.array(point) - np.array(center))
-        if  distance < radius*10:
+
+        #if  distance < radius*10 and distance!=0:
+        if  distance < radius*10 :
             result.append(point)
     return result
 
@@ -424,7 +426,30 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
                 G.add_edge(tuple(goal_position), x_new, weight=local_cost(goal_position, x_new, costmap))
                 return G 
     return G
+def Optimal_Probabilistic_Roadmap(costmap, n, d_parameter, max_cost):
+    # Create the graph
+    G = nx.Graph()
+    
 
+    # Generate sampled points
+    sampled_indices = weighted_posterior_sampling(costmap, n, max_cost)
+
+    for i, x_rand in enumerate(sampled_indices, start=1):
+        x_rand = tuple(x_rand)  # Convert x_rand to tuple
+        radius = (math.log(i) / i) ** (1 / d_parameter) # Calculate radius for rewire
+        G.add_node(tuple(x_rand))
+        
+        x_neighbors = points_within_radius(G.nodes, x_rand, radius*10)
+
+        for x_near in x_neighbors:
+            x_near = tuple(x_near) # Convert x_near to tuple
+            # Calculate the cost of the path
+            
+            if safety_verification_brehensam(costmap, x_near, x_rand, max_cost):
+                G.add_edge(x_near, x_rand, weight=local_cost(x_near, x_rand, costmap))
+
+         
+    return G
 def parent(G, x, x_ancestor, radius):
     """
     Find the parent vertex of a node x in the graph G.
