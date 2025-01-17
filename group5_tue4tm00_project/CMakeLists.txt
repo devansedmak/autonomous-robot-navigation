@@ -45,6 +45,7 @@ install(PROGRAMS
   scripts/path_planner.py
   scripts/path_follower.py
   scripts/odometry.py
+  scripts/visualization.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

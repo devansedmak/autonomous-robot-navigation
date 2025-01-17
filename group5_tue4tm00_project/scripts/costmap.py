@@ -13,6 +13,7 @@ from tf_transformations import euler_from_quaternion
 import tf2_ros
 import matplotlib.pyplot as plt
 from core_occupancy_grid_costmap import occupancy_grid_costmap
+from matplotlib.colors import ListedColormap, Normalize
 
 import numpy as np
 import random
@@ -120,18 +121,14 @@ class Costmap(Node):
 
         # Reshape the occupancy grid data into a 2D array
         occupancy_matrix = np.array(occgrid_msg.data).reshape(occgrid_msg.info.height, occgrid_msg.info.width)
-        '''
-        # Visualize the grid using Matplotlib
-        plt.figure(figsize=(10, 8))  # Adjust the figure size as needed
-        plt.imshow(occupancy_matrix, cmap='gray', origin='lower', vmin=np.min(occupancy_matrix), vmax=np.max(occupancy_matrix))  # Use 'gray' colormap for better contrast
-        plt.colorbar(label='Occupancy Probability')  # Add a color bar to interpret the values
-        plt.title('Occupancy Grid Map')
-        plt.xlabel('Width (cells)')
-        plt.ylabel('Height (cells)')
-        plt.show(block=False)  # Make plotting non-blocking
-        plt.pause(1)  # Allow time for the plot to render
-        '''
-        binary_occupancy_matrix = occupancy_matrix > 100 * self.occupancy_threshold
+        
+         
+
+        binary_occupancy_matrix = np.where(occupancy_matrix == -1, 1, occupancy_matrix > 100 * self.occupancy_threshold)
+
+
+
+        #binary_occupancy_matrix = occupancy_matrix > 100 * self.occupancy_threshold
 
         # Handle safety margins (for example)
         safety_margin_in_cells = self.safety_margin / occgrid_msg.info.resolution

@@ -13,7 +13,8 @@ from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import TransformStamped
 import networkx as nx
 from group5_tue4tm00_assignment3 import tools3
-
+from core_path_follow_ctrl import path_follow_tools
+from group5_tue4tm00_assignment1 import tools
 import rclpy.time
 from tf_transformations import euler_from_quaternion
 import tf2_ros
@@ -21,6 +22,10 @@ import numpy as np
 from group5_tue4tm00_assignment2 import tools_2
 from core_proj_nav_ctrl import proj_nav_tools
 import matplotlib.pyplot as plt
+import networkx as nx
+import matplotlib.pyplot as plt
+
+
 
 class PathPlanner(Node):
     
@@ -42,6 +47,7 @@ class PathPlanner(Node):
         self.scan_pose_a = 0.0 # scan yaw angle
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.r = 0.2 # Radius of the robot
+        self.scan_polygon = np.zeros((2,2)) 
 
         self.check_goal = True # Check if the goal has changed
         self.check_graph = True # Check if the graph has been created
@@ -49,7 +55,7 @@ class PathPlanner(Node):
         self.check_pose = False #Check if the position has been given
         self.max_cost = 90 # Max value of cost map
         self.d_parameter = 10 # Parameter for adaptive selection of neibor size
-        self.n = 300 # Number of iterations of RRT* 
+        self.n = 400 # Number of iterations of RRT* 
         
         # Node parameter for update rate
         self.rate = 1.0 
@@ -172,7 +178,32 @@ class PathPlanner(Node):
         """
         self.costmap_msg = msg   
     
+    def plot_graph(self, G):
+        """
+        Plots the vertices and edges of a networkx graph.
 
+        Parameters:
+        G (networkx.Graph): The graph to be plotted.
+
+        Returns:
+        None
+        """
+        pos = {node: node for node in G.nodes()}
+
+        # Draw nodes (vertices)
+        nx.draw_networkx_nodes(G, pos, node_size=5, node_color="skyblue", edgecolors="black")
+        
+        # Draw edges
+        nx.draw_networkx_edges(G, pos, edge_color="red")
+        
+        # Draw labels (optional)
+        # nx.draw_networkx_labels(G, pos, font_size=10, font_color="black")
+
+        # Display the graph
+        plt.title("Graph Plot")
+        plt.axis("equal")  # Ensure equal scaling for accurate spatial representation
+        plt.show()
+        
 
     def timer_callback(self):
        
@@ -183,8 +214,14 @@ class PathPlanner(Node):
         start_position = np.asarray([self.pose_x, self.pose_y])
         goal_position = np.asarray([self.goal_x, self.goal_y])
 
-        self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
+        
+        pose_temp = np.array([self.pose_x, self.pose_y])
+        scan_polygon_temp1= self.scan_polygon
+        nearest_points = proj_nav_tools.local_nearest(self.scan_points, pose_temp)
+        self.convex_interior = tools.polygon_convex_interior_safe_new(scan_polygon_temp1,nearest_points, pose_temp, self.r)
+        self.path_goal = path_follow_tools.path_goal_support_corridor(self.path, pose_temp, self.convex_interior)
+        
+
 
         if np.array_equal(goal_position, np.asarray([0, 0])):
             print("Goal still not loaded properly")
@@ -222,13 +259,14 @@ class PathPlanner(Node):
         
         if self.check_graph:
             # Perform RRT path planning
-            print('Graph is being created...')
+            #print('Graph is being created...')
             #self.graph = tools3.optimal_rrt(costmap_matrix, start_cell, self.n, self.d_parameter, self.max_cost)
             self.graph = tools3.Optimal_Probabilistic_Roadmap(costmap_matrix, self.n, self.d_parameter, self.max_cost)
             self.check_graph = False
-            print( " i finished the graph!!!!!!!!!!!!!!!!!!!!!!!!!")
+            #self.plot_graph(self.graph)
+            #print( " i finished the graph!!!!!!!!!!!!!!!!!!!!!!!!!")
            
-            print(self.graph.nodes)
+            #print(self.graph.nodes)
 
         if (self.check_goal or self.check or self.path_goal is None) and self.check_pose:
             print('Path is being searched...')
@@ -263,7 +301,7 @@ class PathPlanner(Node):
                         print("provo a cercare la path")
                         path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
                         print("ho trovTO LA PATH!!!!!!!!!!")
-                        print(path_grid)                  
+                        #print(path_grid)                  
                     except KeyError:
                         raise nx.NodeNotFound
                 else:
@@ -273,10 +311,19 @@ class PathPlanner(Node):
                     self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
                     path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
 
+                print(path_grid)
+
+                if path_grid is None:
+                    print("non ho trovato la path aumento i punti e ricalcolo")
+                    self.check_graph = True
+                    self.n=self.n*4
+                    self.timer_callback()
+                
                 path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)  
+                print(path_world)
                 self.path=path_world
                 print("here your path")
-                print(path_world)
+                #print(path_world)
 
                 for waypoint in path_world:
                     pose_msg = PoseStamped()

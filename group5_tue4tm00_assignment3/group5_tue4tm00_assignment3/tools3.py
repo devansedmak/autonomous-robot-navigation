@@ -47,7 +47,7 @@ def weighted_posterior_sampling(costmap, num_samples, max_cost):
     sampled_indices = np.stack(sampled_indices, axis=1)
 
     # Filter out indices where costmap value is 0
-    valid_indices = [idx for idx in sampled_indices if costmap[idx[0], idx[1]] != 0]
+    valid_indices = [idx for idx in sampled_indices if costmap[idx[0], idx[1]] < max_cost]
 
     # Repeat sampling until enough valid indices are collected
     while len(valid_indices) < num_samples:
@@ -56,7 +56,7 @@ def weighted_posterior_sampling(costmap, num_samples, max_cost):
         sampled_indices = np.unravel_index(sampled_flat_indices, costmap.shape)
         sampled_indices = np.stack(sampled_indices, axis=1)
         valid_indices.extend([idx for idx in sampled_indices if costmap[idx[0], idx[1]] < max_cost])
-
+    
     return np.array(valid_indices[:num_samples])
 
 
@@ -424,6 +424,7 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
             if safety_verification_brehensam(costmap, goal_position, x_new, max_cost):
                 G.add_node(tuple(goal_position))
                 G.add_edge(tuple(goal_position), x_new, weight=local_cost(goal_position, x_new, costmap))
+                print("ho trovato un gollegamento diretto e chiudo RRT informed")
                 return G 
     return G
 def Optimal_Probabilistic_Roadmap(costmap, n, d_parameter, max_cost):

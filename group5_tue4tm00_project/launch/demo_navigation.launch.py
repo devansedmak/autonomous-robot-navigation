@@ -164,4 +164,36 @@ def generate_launch_description():
     )
     ld.add_action(path_follower_launch)
 
+    visualization_launch = TimerAction(
+        period=3.0, # Delay in seconds
+        actions = [
+            GroupAction(
+                actions=[
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            os.path.join(get_package_share_directory('group5_tue4tm00_project'), 'launch', 'visualization.launch.py')
+                        )
+                    )
+                ],
+                scoped=True,
+                forwarding=False,
+                launch_configurations={
+                    'use_sim_time': LaunchConfiguration('use_sim_time'),
+                    'namespace': LaunchConfiguration('namespace'),
+                    'pose': 'odom_pose',
+                    'goal': 'goal',
+                    'scan': 'scan',
+                    'map': 'map',
+                    'costmap': 'costmap',
+                    'path': 'path',
+                    'cmd_vel': 'cmd_vel_ctrl',
+                    'convex_interior': 'convex_interior',
+                    'path_goal': 'path_goal',
+                    'pose_in': ['/mocap/', LaunchConfiguration('namespace'), '/pose'], 
+                },
+            )
+        ]
+    )
+    ld.add_action(visualization_launch)
+
     return ld
