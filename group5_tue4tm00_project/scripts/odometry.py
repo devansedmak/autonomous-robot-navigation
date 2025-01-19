@@ -30,8 +30,8 @@ class Odometry(Node):
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
        
-        self.scan_points_old = np.zeros((2,2))
-        self.chek_real_position_rrived = False
+        # self.scan_points_old = np.zeros((2,2))  # Scan points of the last frame
+        self.check_real_position_arrived = False # Check if the real position has arrived
        
         # Default Parameters
         self.rate = 10.0
@@ -101,7 +101,7 @@ class Odometry(Node):
         self.pose_y = msg.pose.position.y
         self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
         self.pose_out_msg = msg
-        self.chek_real_position_rrived = True
+        self.check_real_position_arrived = True
 
     def cmd_vel_callback(self, msg):
         """
@@ -120,7 +120,7 @@ class Odometry(Node):
         if self.pose_x is None:
             return
         
-        self.scan_points_old=self.scan_points
+        # self.scan_points_old=self.scan_points
 
         self.scan_pose_x = self.pose_x
         self.scan_pose_y = self.pose_y
@@ -147,6 +147,9 @@ class Odometry(Node):
         """
         #TODO: If needed, use the map topic messages in your design
         self.map_msg = msg
+
+    '''
+    We tried to use scan matching, but were unsuccessful
 
     def scan_matching(self, P, Q, max_iterations=50, tolerance=1e-6):
         """
@@ -205,7 +208,7 @@ class Odometry(Node):
             R, t = R_new, t_new
         
         return R, t, c
-
+    '''
 
     def timer_update(self):
         """
@@ -216,14 +219,13 @@ class Odometry(Node):
         # Update odometry
         if self.pose_x is None:
             return
-        if self.chek_real_position_rrived:
-            self.chek_real_position_rrived = False
+        if self.check_real_position_arrived:
+            self.check_real_position_arrived = False
         else:
-            if np.abs(self.ang_vel) <= 0.5:
+            if np.abs(self.ang_vel) <= 0.5: # Always
                 self.pose_x, self.pose_y, self.pose_a = odometry.unicycle_odometry_Euler(self.pose_x, self.pose_y, self.pose_a, self.lin_vel, self.ang_vel, delta_t = 1.0/self.rate)
-                #self.pose_x, self.pose_y, self.pose_a = odometry.unicycle_odometry(self.pose_x, self.pose_y, self.pose_a, self.lin_vel, self.ang_vel, delta_t = 1.0/self.rate)
-                #self.pose_x, self.pose_y, self.pose_a = odometry.unicycle_odometry_RungeKutta(self.pose_x, self.pose_y, self.pose_a, self.lin_vel, self.ang_vel, delta_t = 1.0/self.rate)
-            else:
+            '''
+            else: # Didn't work
                 if self.scan_pose_a is not None:
                     print("Scan Matching")
                     R, t, c =self.scan_matching(self.scan_points_old, self.scan_points , max_iterations=5, tolerance=1e-6)
@@ -235,7 +237,7 @@ class Odometry(Node):
                     self.pose_a=(self.pose_a + np.pi) % (2 * np.pi) - np.pi
                     print(delta_theta)
                     print(t)
-
+            '''
 
         self.pose_out_msg.header.stamp = self.get_clock().now().to_msg()
         self.pose_out_msg.pose.position.x = self.pose_x

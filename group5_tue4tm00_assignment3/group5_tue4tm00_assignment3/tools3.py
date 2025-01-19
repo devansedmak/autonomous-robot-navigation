@@ -427,11 +427,23 @@ def informed_optimal_rrt(costmap, start_point, n, d_parameter, max_cost, goal_po
                 print("ho trovato un gollegamento diretto e chiudo RRT informed")
                 return G 
     return G
+
 def Optimal_Probabilistic_Roadmap(costmap, n, d_parameter, max_cost):
+    """
+    Implement Optimal Probabilistic Roadmap algorithm.
+
+    Parameters:
+        costmap (np.ndarray): A 2D numpy array representing the cost map.
+        n (int): Number of iterations.
+        d_parameter (float): Parameter for adaptive selection of neighbor size.
+        max_cost (float): Maximum allowable cost for sampling.
+
+    Returns:
+        MotionGraph: The graph G = (V, E).
+    """
     # Create the graph
     G = nx.Graph()
     
-
     # Generate sampled points
     sampled_indices = weighted_posterior_sampling(costmap, n, max_cost)
 
@@ -449,8 +461,8 @@ def Optimal_Probabilistic_Roadmap(costmap, n, d_parameter, max_cost):
             if safety_verification_brehensam(costmap, x_near, x_rand, max_cost):
                 G.add_edge(x_near, x_rand, weight=local_cost(x_near, x_rand, costmap))
 
-         
     return G
+
 def parent(G, x, x_ancestor, radius):
     """
     Find the parent vertex of a node x in the graph G.
@@ -464,7 +476,6 @@ def parent(G, x, x_ancestor, radius):
     Returns:
         tuple: The parent vertex of x.
     """
-    #neighbors = points_within_radius(G.nodes, x, radius)
     neighbors= G.neighbors(x)
     min_cost = float('inf')
     parent_vertex = None

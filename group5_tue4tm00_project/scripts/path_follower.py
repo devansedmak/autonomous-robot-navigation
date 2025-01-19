@@ -30,7 +30,7 @@ class SafePathFollower(Node):
         super().__init__('safe_path_follower', allow_undeclared_parameters=True, 
                          automatically_declare_parameters_from_overrides=True)
         
-        # If needed in your design, define your node parameters
+        # Node parameters
         self.pose_x = 0.0 # robot x-position
         self.pose_y = 0.0 # robot y-position
         self.pose_a = 0.0 # robot yaw angle
@@ -46,11 +46,11 @@ class SafePathFollower(Node):
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.path = np.zeros((0,2)) # Path
         
-        self.r = 0.2
-        self.lin_gain=1.0
+        self.r = 0.22 # Robot radius
+        self.lin_gain=1.0 # Linear gain
         lin_gain = self.get_parameter('lin_gain').value
         self.lin_gain = lin_gain if lin_gain is not None else self.lin_gain
-        self.ang_gain=2.0
+        self.ang_gain=2.0 # Angular gain
         ang_gain = self.get_parameter('ang_gain').value
         self.ang_gain = ang_gain if ang_gain is not None else self.ang_gain
 
@@ -96,7 +96,7 @@ class SafePathFollower(Node):
         positions_plot_options = self.get_parameters_by_prefix('positions_plot_options')
         self.positions_plot_options = {key: param.value for key, param in positions_plot_options.items()} if positions_plot_options else self.positions_plot_options
         
-        # If needed in your design, create a subscriber to the pose topic
+        # Create a subscriber to the pose topic
         self.pose_subscriber = self.create_subscription(PoseStamped, 'pose', self.pose_callback, 1)
         self.pose_msg = PoseStamped()
 
@@ -137,9 +137,6 @@ class SafePathFollower(Node):
         # to get transformations via self.tf_buffer.lookup_transform
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-
-        # Start the plot
-        #self.plot_start()
         
         # If need in your design, crease a timer for periodic updates
         self.create_timer(1.0 / self.rate, self.timer_callback)
@@ -148,7 +145,6 @@ class SafePathFollower(Node):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
@@ -158,7 +154,6 @@ class SafePathFollower(Node):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
@@ -191,138 +186,61 @@ class SafePathFollower(Node):
         """
         Callback function for the map topic, handling messages of type nav_msgs.msg.OccupancyGrid
         """
-        #TODO: If needed, use the map topic messages in your design
         self.map_msg = msg
 
     def costmap_callback(self, msg):
         """
         Callback function for the costmap topic, handling messages of type nav_msgs.msg.OccupancyGrid
-        """
-        #TODO: If needed, use the costmap topic messages in your design
-    
+        """    
         self.costmap_msg = msg  
 
     def path_callback(self, path_msg):
         """
         Callback function for the path topic, handling messages of type nav_msgs.msg.Path
         """
-        #TODO: If needed, use the path topic messages in your design
-        print("i'm inside path callback")
-
         self.path_msg = path_msg  
         path_points = []
         for pose_stamped in path_msg.poses:
             path_points.append([pose_stamped.pose.position.x, pose_stamped.pose.position.y])
         self.path = np.asarray(path_points)          
-        #print(self.path)
-    '''
-    def plot_start(self):
-        # Create figure for visualization
-        plt.ion()
-        self.fig = plt.figure()
-        self.fig.set(**self.figure_options)
-        self.ax = self.fig.add_subplot(1,1,1)
-        self.ax.set(**self.axes_options)
-        self.ax.grid(**self.grid_options)
-
-        self.scan_patch = patches.Polygon(self.scan_polygon, **self.patch_options)
-        self.ax.add_patch(self.scan_patch)
-        self.corridor_patch = patches.Polygon(self.scan_polygon, **self.corridor_patch_options)
-        self.ax.add_patch(self.corridor_patch)    
-        self.path_plot, = self.ax.plot([], [], **self.path_plot_options)
-        self.path_goal_plot, = self.ax.plot([], [], **self.path_goal_plot_options)
-        self.scan_plot, = self.ax.plot([], [], **self.plot_options)
-        self.nearest_scan_scatter = self.ax.scatter([],[], **self.scatter_options)
-        self.quiver = self.ax.quiver([0,0], [0,0], **self.quiver_options)
-
-        self.positions_plot, = self.ax.plot([], [], **self.positions_plot_options)
-
-        self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events()
-    
-    def plot_update(self):
-        # Update figure
-
-        #self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-        #self.convex_interior = tools.polygon_convex_interior_safe(self.nearest_points, [self.scan_pose_x, self.scan_pose_y], self.r)
-        #self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
-        
-        #pose_temp = np.array([self.pose_x, self.pose_y])
-        #scan_polygon_temp1= self.scan_polygon
-        #convex_interior_temp = tools.polygon_convex_interior_safe_new(scan_polygon_temp1, pose_temp, self.r)
-        # convex_interior_temp = tools.polygon_convex_interior_safe_new(scan_polygon_temp1, [self.scan_pose_x, self.scan_pose_y], self.r)
-        #print(convex_interior_temp)
-        #scan_polygon_temp= self.scan_polygon
-        #self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, pose_temp, convex_interior_temp, self.r)
-        # self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], scan_polygon_temp, self.r)
-
-        if self.path_goal is not None:
-            self.path_goal_plot.set_data(self.path_goal[0], self.path_goal[1])
-        else:
-            self.path_goal_plot.set_data([], [])
-
-        self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
-        self.path_plot.set_data(self.path[:,0], self.path[:,1])
-        
-        self.positions_plot.set_data(self.positions[:,0], self.positions[:,1])
-        
-        self.scan_patch.set_xy(self.scan_polygon)
-        self.corridor_patch.set_xy(self.convex_interior)
-        self.quiver.set_UVC(U=[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)], 
-                            V=[np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)])
-        self.quiver.set(offsets=(self.scan_pose_x,self.scan_pose_y))
-        #self.nearest_scan_scatter.set_offsets(np.c_[self.nearest_points[:,0], self.nearest_points[:,1]])
-        self.fig.canvas.draw_idle()
-        self.fig.canvas.flush_events()   
-    '''        
+           
     def timer_callback(self):
         """
         Callback function for peridic timer updates
         """
-        #print("i arrived")
-         # Update the plot
-        #self.plot_update()
         pose_temp = np.array([self.pose_x, self.pose_y])
         scan_polygon_temp1= self.scan_polygon
         nearest_points = proj_nav_tools.local_nearest(self.scan_points, pose_temp)
         self.convex_interior = tools.polygon_convex_interior_safe_new(scan_polygon_temp1,nearest_points, pose_temp, self.r)
         self.path_goal = path_follow_tools.path_goal_support_corridor(self.path, pose_temp, self.convex_interior)
         
-        #TODO: If needed, use the timer callbacks in your design 
-        #self.plot_update()
-        
-        #print("this is the path from timer callback")
-        #print(self.path)
-        # if self.path_goal is not None: #PROVARE CON QUESTAAAAA
-        if self.path is None or self.path_goal is None or len(self.path_msg.poses) == 0 or  np.linalg.norm(self.path_goal - pose_temp) < 0.2 :
-            #print("la path è vuota")
-            #print(self.path)
+        # If close to goal or no path, stop the robot
+        if self.path is None or self.path_goal is None or len(self.path_msg.poses) == 0 or np.linalg.norm(self.path_goal - pose_temp) < 0.2 :
             self.cmd_vel.linear.x = 0.0
             self.cmd_vel.linear.y = 0.0
             self.cmd_vel.angular.z = 0.0
         else:
             position = np.expand_dims([float(self.pose_x), float(self.pose_y)], axis=0)
-            #print("i arrived over position")
-            #self.nearest_points = proj_nav_tools.local_nearest(self.scan_points, [self.scan_pose_x, self.scan_pose_y])
-            #print(self.nearest_points)
-            #self.convex_interior = tools.polygon_convex_interior_safe(self.nearest_points, [self.scan_pose_x, self.scan_pose_y], self.r)
-            #self.path_goal = tools_2.path_goal_support_corridor_safe(self.path, [self.scan_pose_x, self.scan_pose_y], self.nearest_points, self.r)
+            # Compute the gradient of the navigation potential
             gradient = -grad_nav_tools.gradient_navigation_potential_attractive(position, (self.path_goal).astype(float), strength=1.0)
+            # Compute the unicycle control inputs
             lin_vel, ang_vel = grad_nav_tools.unicycle_gradient_ctrl_2D(gradient, self.pose_a, lin_gain=self.lin_gain, ang_gain=self.ang_gain)
             
+            # Limit the linear and angular velocities
             if np.abs(lin_vel[0]) > 0.26:
                 self.cmd_vel.linear.x = 0.26*lin_vel[0]/np.abs(lin_vel[0])
             else:
                 self.cmd_vel.linear.x = lin_vel[0]
-            self.cmd_vel.angular.y = 0.0
+            self.cmd_vel.linear.y = 0.0
             if np.abs(ang_vel[0]) > 0.5:
                 self.cmd_vel.angular.z = 0.5*ang_vel[0]/np.abs(ang_vel[0])
             else:
                 self.cmd_vel.angular.z = ang_vel[0]
         
-        #print(self.cmd_vel.angular.z)
+        # Publish the control inputs
         self.cmd_vel_pub.publish(self.cmd_vel)
 
+        # Publish convex interior
         convex_interior_msg = Float32MultiArray(data=self.convex_interior.flatten())
         self.convex_interior_pub.publish(convex_interior_msg)
 

@@ -62,13 +62,10 @@ def polygon_convex_interior_safe(polygon, center, r):
 
     return convex_interior
 
-
 def polygon_convex_interior_safe_new(polygon, nearest_points, center, r):
     # Computes the Free Local Space
     polygon = np.asarray(polygon)
     center = np.asarray(center)
-
-    #nearest_points = proj_nav_tools.local_nearest(polygon, center)
 
     convex_interior = polygon
     for point in nearest_points:
@@ -83,32 +80,19 @@ def polygon_convex_interior_safe_new(polygon, nearest_points, center, r):
     
     num_nearest_points = nearest_points.shape[0]
     num_vertices = convex_interior.shape[0]
-    #print(num_vertices)
+
     if (num_vertices-num_nearest_points) > 6:
-        #print("ho troppi punti li tolgo")
         sampling_interval = int(num_vertices / 6)  # Ensure at least 6 points are sampled
-        #print(sampling_interval)
 
         final_convex = []
         for i in range(6):
             final_convex.append(safe_point(center, convex_interior[i*sampling_interval, :], r))  # Select the
 
-        """
-        for point in points:
-            #point = convex_interior[i*sampling_interval, :]  # Select the verte
-            point = safe_point(center, point, r) # Get the new point
-            if np.linalg.norm(center-point) <= r:
-                center1 =safe_point1(center, point1, r)
-                convex_interior = intersect_polygon_halfplane(convex_interior, point, center1-point)
-            else:
-                convex_interior = intersect_polygon_halfplane(convex_interior, point, center-point)
-            convex_interior = np.array(convex_interior)
-        """
         for point in nearest_points:
             point1=point
             point = safe_point(center, point, r) # Get the new point
             if np.linalg.norm(center-point) <= r:
-                print("too close to wall")
+                print("Too close to wall")
             else:
                 final_convex.append(point)
     else:
@@ -117,7 +101,7 @@ def polygon_convex_interior_safe_new(polygon, nearest_points, center, r):
             point1=point
             point = safe_point(center, point, r) # Get the new point
             if np.linalg.norm(center-point) <= r:
-                print("too close to wall")
+                print("Too close to wall")
             else:
                 final_convex.append(point)
         for i in range(num_vertices-num_nearest_points):
@@ -125,10 +109,6 @@ def polygon_convex_interior_safe_new(polygon, nearest_points, center, r):
 
 
     return np.asarray(final_convex)
-
-
-
-
 
 def intersezione_rette(retta1, retta2):
     """

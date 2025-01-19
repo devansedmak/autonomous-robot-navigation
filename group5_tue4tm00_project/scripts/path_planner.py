@@ -46,7 +46,7 @@ class PathPlanner(Node):
         self.scan_pose_y = 0.0 # scan y-position
         self.scan_pose_a = 0.0 # scan yaw angle
         self.scan_points = np.zeros((2,2)) # Valid scan points
-        self.r = 0.2 # Radius of the robot
+        self.r = 0.22 # Radius of the robot
         self.scan_polygon = np.zeros((2,2)) 
 
         self.check_goal = True # Check if the goal has changed
@@ -133,14 +133,15 @@ class PathPlanner(Node):
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
         self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
-        self.check_pose = True
+        self.check_pose = True # Check if the position has been given
+
     def goal_callback(self, msg):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
         self.goal_msg = msg
         if(self.goal_x != msg.pose.position.x or self.goal_y != msg.pose.position.y):
-            self.check_goal = True
+            self.check_goal = True # Check if the goal has changed
             self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
     
@@ -195,34 +196,29 @@ class PathPlanner(Node):
         
         # Draw edges
         nx.draw_networkx_edges(G, pos, edge_color="red")
-        
-        # Draw labels (optional)
-        # nx.draw_networkx_labels(G, pos, font_size=10, font_color="black")
 
         # Display the graph
         plt.title("Graph Plot")
         plt.axis("equal")  # Ensure equal scaling for accurate spatial representation
         plt.show()
-        
 
     def timer_callback(self):
-       
+        """
+        Callback function for peridic timer updates
+        """
         if (self.pose_msg is None) or (self.goal_msg is None) or (self.costmap_msg is None):
             self.get_logger().warn("Pose, goal, or costmap messages are not yet received. Skipping...")
             return
 
         start_position = np.asarray([self.pose_x, self.pose_y])
         goal_position = np.asarray([self.goal_x, self.goal_y])
-
         
         pose_temp = np.array([self.pose_x, self.pose_y])
         scan_polygon_temp1= self.scan_polygon
-        nearest_points = proj_nav_tools.local_nearest(self.scan_points, pose_temp)
-        self.convex_interior = tools.polygon_convex_interior_safe_new(scan_polygon_temp1,nearest_points, pose_temp, self.r)
-        self.path_goal = path_follow_tools.path_goal_support_corridor(self.path, pose_temp, self.convex_interior)
+        nearest_points = proj_nav_tools.local_nearest(self.scan_points, pose_temp) # Find the nearest points
+        self.convex_interior = tools.polygon_convex_interior_safe_new(scan_polygon_temp1,nearest_points, pose_temp, self.r) # Find the convex interior
+        self.path_goal = path_follow_tools.path_goal_support_corridor(self.path, pose_temp, self.convex_interior) # Find the projection of the goal on the Local Free Space
         
-
-
         if np.array_equal(goal_position, np.asarray([0, 0])):
             print("Goal still not loaded properly")
             return
@@ -259,14 +255,9 @@ class PathPlanner(Node):
         
         if self.check_graph:
             # Perform RRT path planning
-            #print('Graph is being created...')
-            #self.graph = tools3.optimal_rrt(costmap_matrix, start_cell, self.n, self.d_parameter, self.max_cost)
             self.graph = tools3.Optimal_Probabilistic_Roadmap(costmap_matrix, self.n, self.d_parameter, self.max_cost)
-            self.check_graph = False
-            #self.plot_graph(self.graph)
-            #print( " i finished the graph!!!!!!!!!!!!!!!!!!!!!!!!!")
-           
-            #print(self.graph.nodes)
+            self.check_graph = False # Check if the graph has been created
+            #self.plot_graph(self.graph) # Plot the graph
 
         if (self.check_goal or self.check or self.path_goal is None) and self.check_pose:
             print('Path is being searched...')
@@ -281,49 +272,41 @@ class PathPlanner(Node):
                 path_msg.header.frame_id = 'world'
                 path_msg.header.stamp = self.get_clock().now().to_msg()
                 
+                # Check if the start cell is in the graph
                 if tuple(start_cell) not in self.graph.nodes:
                     x_nearest_start = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - start_cell))
                     if tools3.safety_verification_brehensam(costmap_matrix, start_cell, x_nearest_start, self.max_cost):
                         self.graph.add_node(tuple(start_cell))
-                        self.graph.add_edge(tuple(x_nearest_start), tuple(start_cell), weight=tools3.local_cost(x_nearest_start, start_cell, costmap_matrix))
-                        print("c'è un collegamento DIRETTO start cell!")                   
+                        self.graph.add_edge(tuple(x_nearest_start), tuple(start_cell), weight=tools3.local_cost(x_nearest_start, start_cell, costmap_matrix))                
                     else:
                         if costmap_matrix[start_cell[1], start_cell[0]] == self.max_cost:
                             raise nx.NodeNotFound
-                        print("i'm going to start rrt informed!!!!!!!!!!!!!")
                         self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest_start, (self.n+500), self.d_parameter, self.max_cost, start_cell, self.graph)
-                        print("i have done rrt informed!!!!!!!!! ")
+                
+                # Check if the goal cell is in the graph
                 if tools3.safety_verification_brehensam(costmap_matrix, goal_cell, x_nearest, self.max_cost):
                     self.graph.add_node(tuple(goal_cell))
                     self.graph.add_edge(tuple(x_nearest), tuple(goal_cell), weight=tools3.local_cost(x_nearest, goal_cell, costmap_matrix))
-                    print("c'è un collegamento DIRETTO goal cell!")
                     try:
-                        print("provo a cercare la path")
                         path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
-                        print("ho trovTO LA PATH!!!!!!!!!!")
-                        #print(path_grid)                  
                     except KeyError:
                         raise nx.NodeNotFound
                 else:
                     if costmap_matrix[goal_cell[1], goal_cell[0]] == self.max_cost:
                         raise nx.NodeNotFound
-                    print("provo a fare rrt per il goal")
                     self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
                     path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
 
-                print(path_grid)
-
+                # If a path is found, restart the algorithm only one time
                 if path_grid is None:
-                    print("non ho trovato la path aumento i punti e ricalcolo")
                     self.check_graph = True
                     self.n=self.n*4
                     self.timer_callback()
                 
+                # Convert the path from grid to world coordinates
                 path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)  
                 print(path_world)
                 self.path=path_world
-                print("here your path")
-                #print(path_world)
 
                 for waypoint in path_world:
                     pose_msg = PoseStamped()
@@ -337,8 +320,7 @@ class PathPlanner(Node):
                     self.path_publisher.publish(path_msg)
                 else:
                     print("There is no safe path, waiting for a new goal or new start position...")
-                    #pose_msg = PoseStamped()
-                    #self.path_publisher.publish(path_msg)
+
                 self.check = False
             except nx.NodeNotFound:
                 self.get_logger().warn("A safe path does not exist!")

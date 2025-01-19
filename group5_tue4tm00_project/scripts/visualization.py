@@ -44,7 +44,7 @@ class Visualization(Node):
         self.pose_a = 0.0 # robot yaw angle
         self.goal_x = 0.0 # goal x-position
         self.goal_y = 0.0 # goal y-position
-        self.path_goal = np.zeros((1,2))
+        self.path_goal = np.zeros((1,2)) # Path goal position
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.scan_pose_x = 0.0 # scan x-position
@@ -53,9 +53,10 @@ class Visualization(Node):
         self.scan_points = np.zeros((2,2)) # Valid scan points
         self.scan_polygon = np.zeros((2,2)) # Scan polygon vertices
         self.path = np.zeros((0,2)) # Path
-        self.convex_interior = np.zeros((0, 2))  # Inizializza come array vuoto
-        self.points_plot = np.zeros((0, 2))
-        
+        self.convex_interior = np.zeros((0, 2))  # Interior of the convex hull
+        self.points_plot = np.zeros((0, 2)) # Initialize as an empty array
+        self.r = 0.22 # Robot radius
+
         self.real_pose_x = 0.0
         self.real_pose_y = 0.0
         self.real_pose_a = 0.0
@@ -63,18 +64,13 @@ class Visualization(Node):
         self.pose1_y_list = [] # y-position list
         self.pose1_a_list = [] # yaw-angle list
 
-
         self.number_of_poses1 = 10                
         
-        self.r = 0.2
-
         self.check = False # Check for initialization issues
-        self.positions = np.empty((0, 2)) # Is an array that contains all the positions that the robot takes
+        self.positions = np.empty((0, 2)) # Contains all the positions that the robot takes
 
         # Node parameter for update rate
         self.rate = 10.0 
-        #rate = self.get_parameter('rate').value
-        #self.rate = rate if rate is not None else self.rate 
         
         self.figure_options = {'figwidth': 8.0, 'figheight': 8.0} # Refer to **kwargs of matplotlib.figure.Figure
         self.axes_options = {'aspect': 'equal', 'xlim': (-14.0,14.0), 'ylim':(-9.5, 9.5)} # Refer to **kwargs of matplotlib.axes.Axes
@@ -156,10 +152,12 @@ class Visualization(Node):
         self.plot_start()
 
         # Start the plot update loop
-        self.create_timer(0.1, self.timer_callback)
+        self.create_timer(1.0/self.rate, self.timer_callback)
     
     def convex_interior_callback(self, msg):
-        #self.convex_interior = np.array(msg.data).reshape(-1, 2)
+        """
+        Callback function for the convex_interior topic, handling messages of type std_msgs.msg.Float32MultiArray
+        """
         if msg.data and len(msg.data) % 2 == 0:
             self.convex_interior = np.array(msg.data).reshape(-1, 2)
             if self.convex_interior is not None and len(self.convex_interior) > 2:
@@ -169,29 +167,30 @@ class Visualization(Node):
                 pose_temp = np.array([self.pose_x, self.pose_y])
                 self.convex_interior= tools.trova_intersezione(self.convex_interior, pose_temp)
         else:
-            #self.get_logger().warn("Received an invalid or empty convex_interior message.")
-            # Optionally, set convex_interior to an empty array to avoid using invalid data
+            # Set convex_interior to an empty array to avoid using invalid data
             self.convex_interior = np.array([])
 
     def path_goal_callback(self, msg):
+        """
+        Callback function for the path_goal topic, handling messages of type std_msgs.msg.Float32MultiArray
+        """
         self.path_goal = np.array(msg.data).reshape(-1, 2) if len(msg.data) > 0 else None
 
     def pose_callback(self, msg):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
         self.pose_a = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
         new_position=np.array([[self.pose_x, self.pose_y]])
         self.positions = np.vstack([self.positions, new_position])
+
     def goal_callback(self, msg):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
@@ -199,10 +198,7 @@ class Visualization(Node):
     def scan_callback(self, scan_msg):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
-        """
-        #print(self.convex_interior)
-        
-        
+        """        
         self.scan_pose_x = self.pose_x
         self.scan_pose_y = self.pose_y
         self.scan_pose_a = self.pose_a
@@ -227,15 +223,12 @@ class Visualization(Node):
         """
         Callback function for the path topic, handling messages of type nav_msgs.msg.Path
         """
-        #TODO: If needed, use the path topic messages in your design
-        #print("i'm inside path callback")
-
         self.path_msg = path_msg  
         path_points = []
         for pose_stamped in path_msg.poses:
             path_points.append([pose_stamped.pose.position.x, pose_stamped.pose.position.y])
         path = np.asarray(path_points)
-        if not np.array_equal(path, self.path):  # Check if the path is diffent than the previous one
+        if not np.array_equal(path, self.path):  # Check if the path is different than the previous one
             self.positions = np.empty((0, 2))   # Reset the positions array
             self.positions_plot.set_data([], [])
             self.pose1_x_list = [] # x-position list
@@ -245,6 +238,9 @@ class Visualization(Node):
         self.path = np.asarray(path_points)
 
     def plot_start(self):
+        """
+        Initialize the plot
+        """
         # Create figure for visualization
         plt.ion()
         self.fig = plt.figure()
@@ -253,14 +249,8 @@ class Visualization(Node):
         self.ax.set(**self.axes_options)
         self.ax.grid(**self.grid_options)
 
-        #self.pose_list_plot1, = self.ax.plot(self.pose1_x_list, self.pose1_y_list, linestyle='', marker='o', **self.plot_options1)
         self.pose_list_plot1, = self.ax.plot(self.pose1_x_list, self.pose1_y_list, linestyle='', marker='o', color='r', **self.plot_options1)
-
-        #self.quiver1 = self.ax.quiver([0,0], [0,0], **self.quiver_options1)
-        self.pose_scatter = self.ax.scatter([], [], c='red', s=50)  # Aggiungi scatter per il puntino rosso
-
-
-
+        self.pose_scatter = self.ax.scatter([], [], c='red', s=50)  # Add a scatter plot for the robot pose
 
         self.scan_patch = patches.Polygon(self.scan_polygon, **self.patch_options)
         self.ax.add_patch(self.scan_patch)
@@ -287,38 +277,20 @@ class Visualization(Node):
         self.pose1_x_list.append(self.real_pose_x) 
         self.pose1_y_list.append(self.real_pose_y)
         self.pose1_a_list.append(self.real_pose_a)
-
-
     
     def timer_callback(self):
         # Update figure
-
-        #print(self.path_goal)
         if self.path_goal is not None:
             self.path_goal_plot.set_data(self.path_goal[0, 0], self.path_goal[0, 1])
         else:
             self.path_goal_plot.set_data([], [])
-        """
-        if len(self.pose1_x_list) >= self.number_of_poses1: 
-            self.pose1_x_list.pop(0)
-            self.pose1_y_list.pop(0)
-            self.pose1_a_list.pop(0)
-        """
+
         self.pose1_x_list.append(self.real_pose_x)
         self.pose1_y_list.append(self.real_pose_y)
         self.pose1_a_list.append(self.real_pose_a)
 
         self.pose_list_plot1.set_data(self.pose1_x_list, self.pose1_y_list)
-        #self.pose_scatter.set_offsets([self.real_pose_x, self.real_pose_y])
-        '''
-        # Aggiorna il quiver per mostrare l'orientamento
-        if len(self.pose1_a_list) > 0:
-            self.quiver1.set_UVC(
-                U=[np.cos(self.pose1_a_list[0])],
-                V=[np.sin(self.pose1_a_list[0])]
-        )
-        '''
-        # Combina pose x e y in un array 2D per gli offsets
+        # Combine x and y positions into a single array
         offsets = np.column_stack((self.pose1_x_list, self.pose1_y_list))
         self.pose_scatter.set_offsets(offsets)
         
@@ -329,7 +301,6 @@ class Visualization(Node):
         
         self.scan_patch.set_xy(self.scan_polygon)
 
-        #self.corridor_patch.set_xy(self.convex_interior)
         if self.convex_interior is not None and len(self.convex_interior) > 0:
             self.corridor_patch.set_xy(self.convex_interior)
 

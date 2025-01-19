@@ -47,7 +47,7 @@ class Costmap(Node):
         self.decay_rate = 5.0 # Decay rate for repulsive cost
         decay_rate = self.get_parameter('decay_rate').value
         self.decay_rate = decay_rate if decay_rate is not None else self.decay_rate 
-        self.safety_margin = 0.2 # Safety margin in meters
+        self.safety_margin = 0.22 # Safety margin in meters
         safety_margin = self.get_parameter('safety_margin').value
         self.safety_margin = safety_margin if safety_margin is not None else self.safety_margin
         self.occupancy_threshold = 0.01 # Occupancy probability threshold in the range of [0,1]
@@ -91,7 +91,6 @@ class Costmap(Node):
         """
         Callback function for the pose topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.pose_msg = msg
         self.pose_x = msg.pose.position.x
         self.pose_y = msg.pose.position.y
@@ -101,7 +100,6 @@ class Costmap(Node):
         """
         Callback function for the goal topic, handling messages of type geometry_msgs.msg.PoseStamped
         """
-        #TODO: If needed, use the pose topic messages in your design
         self.goal_msg = msg
         self.goal_x = msg.pose.position.x
         self.goal_y = msg.pose.position.y
@@ -110,7 +108,6 @@ class Costmap(Node):
         """
         Callback function for the scan topic, handling messages of type sensor_msgs.msg.LaserScan
         """
-        #TODO: If needed, use the scan topic messages in your design
         self.scan_msg = msg
 
     def map_callback(self, occgrid_msg):
@@ -122,13 +119,8 @@ class Costmap(Node):
         # Reshape the occupancy grid data into a 2D array
         occupancy_matrix = np.array(occgrid_msg.data).reshape(occgrid_msg.info.height, occgrid_msg.info.width)
         
-         
-
+        # Convert the occupancy matrix to a binary matrix
         binary_occupancy_matrix = np.where(occupancy_matrix == -1, 1, occupancy_matrix > 100 * self.occupancy_threshold)
-
-
-
-        #binary_occupancy_matrix = occupancy_matrix > 100 * self.occupancy_threshold
 
         # Handle safety margins (for example)
         safety_margin_in_cells = self.safety_margin / occgrid_msg.info.resolution
@@ -150,10 +142,8 @@ class Costmap(Node):
     def timer_callback(self):
         """
         Callback function for peridic timer updates
-        """
-        #TODO: If needed, use the timer callbacks in your design 
-        
-        # For example, publish random costmap with the same settings as the map message 
+        """        
+        # Publish the costmap 
         self.costmap_publisher.publish(self.costmap_msg)
 
 
