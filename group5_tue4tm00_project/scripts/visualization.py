@@ -161,11 +161,12 @@ class Visualization(Node):
         if msg.data and len(msg.data) % 2 == 0:
             self.convex_interior = np.array(msg.data).reshape(-1, 2)
             if self.convex_interior is not None and len(self.convex_interior) > 2:
+                #reorder the points to have a convex polygon
                 hull = ConvexHull(self.convex_interior)
                 self.points_plot=self.convex_interior
                 self.convex_interior = self.convex_interior[hull.vertices]
                 pose_temp = np.array([self.pose_x, self.pose_y])
-                self.convex_interior= tools.trova_intersezione(self.convex_interior, pose_temp)
+                self.convex_interior= tools.find_intersection(self.convex_interior, pose_temp)
         else:
             # Set convex_interior to an empty array to avoid using invalid data
             self.convex_interior = np.array([])
@@ -220,6 +221,7 @@ class Visualization(Node):
         self.scan_msg = scan_msg
     
     def path_callback(self, path_msg):
+        
         """
         Callback function for the path topic, handling messages of type nav_msgs.msg.Path
         """
@@ -228,14 +230,18 @@ class Visualization(Node):
         for pose_stamped in path_msg.poses:
             path_points.append([pose_stamped.pose.position.x, pose_stamped.pose.position.y])
         path = np.asarray(path_points)
-        if not np.array_equal(path, self.path):  # Check if the path is different than the previous one
-            self.positions = np.empty((0, 2))   # Reset the positions array
-            self.positions_plot.set_data([], [])
-            self.pose1_x_list = [] # x-position list
-            self.pose1_y_list = [] # y-position list
-            self.pose1_a_list = []
-            self.pose_list_plot1.set_data([], [])
-        self.path = np.asarray(path_points)
+
+        if path.size > 0 and path.shape[1] == 2:  # Ensure path has valid data
+            if not np.array_equal(path, self.path):  # Check if the path is different than the previous one
+                self.positions = np.empty((0, 2))   # Reset the positions array
+                self.positions_plot.set_data([], [])
+                self.pose1_x_list = []  # x-position list
+                self.pose1_y_list = []  # y-position list
+                self.pose1_a_list = []
+                self.pose_list_plot1.set_data([], [])
+            self.path = path
+        else:
+            self.path = np.zeros((0, 2))  # Reset to an empty path if invalid
 
     def plot_start(self):
         """
@@ -279,38 +285,62 @@ class Visualization(Node):
         self.pose1_a_list.append(self.real_pose_a)
     
     def timer_callback(self):
-        # Update figure
-        if self.path_goal is not None:
+        # Update path goal plot
+        if self.path_goal is not None and self.path_goal.size > 0:
             self.path_goal_plot.set_data(self.path_goal[0, 0], self.path_goal[0, 1])
         else:
             self.path_goal_plot.set_data([], [])
 
+        # Update pose list plot
         self.pose1_x_list.append(self.real_pose_x)
         self.pose1_y_list.append(self.real_pose_y)
         self.pose1_a_list.append(self.real_pose_a)
-
         self.pose_list_plot1.set_data(self.pose1_x_list, self.pose1_y_list)
-        # Combine x and y positions into a single array
+
+        # Update pose scatter
         offsets = np.column_stack((self.pose1_x_list, self.pose1_y_list))
         self.pose_scatter.set_offsets(offsets)
-        
-        self.scan_plot.set_data(self.scan_points[:,0], self.scan_points[:,1])
-        self.path_plot.set_data(self.path[:,0], self.path[:,1])
-        
-        self.positions_plot.set_data(self.positions[:,0], self.positions[:,1])
-        
+
+        # Update scan plot
+        if self.scan_points.size > 0:
+            self.scan_plot.set_data(self.scan_points[:, 0], self.scan_points[:, 1])
+        else:
+            self.scan_plot.set_data([], [])
+
+        # Update path plot
+        if self.path is not None and self.path.shape[0] > 0 and self.path.shape[1] == 2:
+            self.path_plot.set_data(self.path[:, 0], self.path[:, 1])
+        else:
+            self.path_plot.set_data([], [])
+
+        # Update positions plot
+        if self.positions.size > 0:
+            self.positions_plot.set_data(self.positions[:, 0], self.positions[:, 1])
+        else:
+            self.positions_plot.set_data([], [])
+
+        # Update scan patch
         self.scan_patch.set_xy(self.scan_polygon)
 
+        # Update convex interior
         if self.convex_interior is not None and len(self.convex_interior) > 0:
             self.corridor_patch.set_xy(self.convex_interior)
 
+        # Update quiver for scan orientation
         self.quiver.set_UVC(U=[np.cos(self.scan_pose_a), -np.sin(self.scan_pose_a)], 
                             V=[np.sin(self.scan_pose_a), np.cos(self.scan_pose_a)])
-        self.quiver.set(offsets=(self.scan_pose_x,self.scan_pose_y))
-        self.nearest_scan_scatter.set_offsets(np.c_[self.points_plot[:,0], self.points_plot[:,1]])
+        self.quiver.set(offsets=(self.scan_pose_x, self.scan_pose_y))
+
+        # Update nearest scan scatter
+        if self.points_plot.size > 0:
+            self.nearest_scan_scatter.set_offsets(self.points_plot)
+        else:
+            self.nearest_scan_scatter.set_offsets(np.empty((0, 2)))
+
+        # Refresh the plot
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
-    
+
 
 def main(args=None):
     rclpy.init(args=args)

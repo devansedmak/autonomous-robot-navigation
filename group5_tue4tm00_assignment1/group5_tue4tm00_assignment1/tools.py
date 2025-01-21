@@ -93,6 +93,9 @@ def polygon_convex_interior_safe_new(polygon, nearest_points, center, r):
             point = safe_point(center, point, r) # Get the new point
             if np.linalg.norm(center-point) <= r:
                 print("Too close to wall")
+                center1 =safe_point1(center, point1, r)
+                point = safe_point(center1, point, r)
+                final_convex.append(point)
             else:
                 final_convex.append(point)
     else:
@@ -102,6 +105,9 @@ def polygon_convex_interior_safe_new(polygon, nearest_points, center, r):
             point = safe_point(center, point, r) # Get the new point
             if np.linalg.norm(center-point) <= r:
                 print("Too close to wall")
+                center1 =safe_point1(center, point1, r)
+                point = safe_point(center1, point, r)
+                final_convex.append(point)
             else:
                 final_convex.append(point)
         for i in range(num_vertices-num_nearest_points):
@@ -110,72 +116,52 @@ def polygon_convex_interior_safe_new(polygon, nearest_points, center, r):
 
     return np.asarray(final_convex)
 
-def intersezione_rette(retta1, retta2):
+
+
+def find_intersection(polygon, center):
+    
     """
-    Trova il punto di intersezione tra due rette date dalle equazioni y = m1*x + q1 e y = m2*x + q2.
+    Find the intersection of the lines perpendicular to the polygon's edges,
+    passing through the polygon's vertices.
 
     Args:
-        retta1 (tuple): La prima retta nella forma (m1, q1).
-        retta2 (tuple): La seconda retta nella forma (m2, q2).
+        polygon (list of tuple): List of points representing the polygon's vertices (x, y).
+        center (tuple): Central point (x, y).
 
     Returns:
-        tuple: Punto di intersezione (x, y).
-    """
-    m1, q1 = retta1
-    m2, q2 = retta2
-
-    if m1 == m2:
-        raise ValueError("Le rette sono parallele e non hanno intersezione.")
-
-    # Calcola x e y dell'intersezione
-    x = (q2 - q1) / (m1 - m2)
-    y = m1 * x + q1
-    return x, y
-
-
-def trova_intersezione(poligono, centro):
-    """
-    Trova l'intersezione delle rette perpendicolari ai segmenti del poligono,
-    passanti per i punti del poligono.
-
-    Args:
-        poligono (list of tuple): Lista di punti che rappresentano i vertici del poligono (x, y).
-        centro (tuple): Punto centrale (x, y).
-
-    Returns:
-        tuple: Punto di intersezione (x, y) delle rette perpendicolari.
+        tuple: Intersection point (x, y) of the perpendicular lines.
     """
     intersection=[]
-    def retta_perpendicolare(segmento, punto):
-        (x1, y1), (x2, y2) = segmento
-        if x2 - x1 != 0:  # Evita divisioni per zero
-            m_segmento = (y2 - y1) / (x2 - x1)
-            m_perpendicolare = -1 / m_segmento
-        else:  # Segmento verticale -> retta perpendicolare è orizzontale
-            m_perpendicolare = 0
+    def perpendicular_line(segment, point):
+        (x1, y1), (x2, y2) = segment
+        if x2 - x1 != 0:  # Avoid division by zero
+            m_segment = (y2 - y1) / (x2 - x1)
+            m_perpendicular = -1 / m_segment
+        else:  # Vertical segment -> perpendicular line is horizontal
+            m_perpendicular = 0
         
-        x0, y0 = punto
-        q = y0 - m_perpendicolare * x0
-        return m_perpendicolare, q
+        x0, y0 = point
+        q = y0 - m_perpendicular * x0
+        return m_perpendicular, q
 
-    n = len(poligono)
+    n = len(polygon)
     if n < 2:
-        raise ValueError("Il poligono deve avere almeno due punti.")
+        raise ValueError("The polygon must have at least two points.")
 
-    # Prendi i primi due punti e crea i segmenti
-    n = len(poligono)
+    
+    n = len(polygon)
 
     for i in range(n):
-        punto1 = poligono[i]
-        punto2 = poligono[(i + 1) % n]  # Usa modulo per chiudere il poligono
-        # Segmenti che uniscono il centro ai due punti consecutivi
-        segmento1 = (punto1, centro)
-        segmento2 = (punto2, centro)
-        retta1 = retta_perpendicolare(segmento1, punto1)
-        retta2 = retta_perpendicolare(segmento2, punto2)
-        retta1 = retta_perpendicolare(segmento1, punto1)
-        retta2 = retta_perpendicolare(segmento2, punto2)
-        intersection.append( intersezione_rette(retta1, retta2) )
+        point1 = polygon[i]
+        point2 = polygon[(i + 1) % n]  # Use modulo to close the polygon
+        # Create segments connecting the center to two consecutive points
+        segment1 = (point1, center)
+        segment2 = (point2, center)
+        line1 = perpendicular_line(segment1, point1)
+        line2 = perpendicular_line(segment2, point2)
+        line1 = perpendicular_line(segment1, point1)
+        line2 = perpendicular_line(segment2, point2)
+        intersection.append( intersect_line(line1, line2) )
 
     
     return intersection
@@ -184,22 +170,23 @@ def trova_intersezione(poligono, centro):
 
 def intersect_polygon_halfplane(polygon, point, normal):
     """
-    Calcola l'intersezione tra un poligono e un semipiano.
+    Calculate the intersection between a polygon and a half-plane.
 
     Args:
-        polygon (list of list/tuple): Vertici del poligono (ordine antiorario o orario).
-        point (array-like): Punto sul semipiano.
-        normal (array-like): Normale del semipiano.
+        polygon (list of list/tuple): Vertices of the polygon (in clockwise or counterclockwise order).
+        point (array-like): A point on the half-plane.
+        normal (array-like): The normal vector of the half-plane.
 
     Returns:
-        list: Vertici del nuovo poligono intersecato.
+        list: Vertices of the new intersected polygon.
+ 
     """
     def is_inside(vertex):
-        """Determina se un punto è all'interno del semipiano."""
+        """Determines whether a point is inside the half-plane"""
         return np.dot(vertex - point, normal) >= 0
 
     def line_intersection(p1, p2, plane_point, plane_normal):
-        """Calcola il punto d'intersezione tra un segmento e il bordo del semipiano."""
+        """Calculate the intersection point between a segment and the edge of the half-plane."""
         d = p2 - p1
         t = np.dot(plane_point - p1, plane_normal) / np.dot(d, plane_normal)
         return p1 + t * d
@@ -220,80 +207,35 @@ def intersect_polygon_halfplane(polygon, point, normal):
             new_polygon.append(current_vertex.tolist())
 
         if current_inside != next_inside:
-            # Calcola il punto d'intersezione con il bordo del semipiano
+            # Calculate the intersection point with the edge of the half-plane
             intersection = line_intersection(current_vertex, next_vertex, point, normal)
             new_polygon.append(intersection.tolist())
 
     return new_polygon
 
 
-def intersezione_rette(retta1, retta2):
+def intersect_line(line1, line2):
     """
-    Trova il punto di intersezione tra due rette date dalle equazioni y = m1*x + q1 e y = m2*x + q2.
+    Find the intersection point between two lines given by the equations y = m1*x + q1 and y = m2*x + q2.
 
     Args:
-        retta1 (tuple): La prima retta nella forma (m1, q1).
-        retta2 (tuple): La seconda retta nella forma (m2, q2).
+        line1 (tuple): The first line in the form (m1, q1).
+        line2 (tuple): The second line in the form (m2, q2).
 
     Returns:
-        tuple: Punto di intersezione (x, y).
+        tuple: Intersection point (x, y).
     """
-    m1, q1 = retta1
-    m2, q2 = retta2
+    m1, q1 = line1
+    m2, q2 = line2
 
     if m1 == m2:
-        raise ValueError("Le rette sono parallele e non hanno intersezione.")
+        raise ValueError("The lines are parallel and have no intersection.")
 
-    # Calcola x e y dell'intersezione
+    # Calculate the intersection point
     x = (q2 - q1) / (m1 - m2)
     y = m1 * x + q1
     return x, y
 
 
-def trova_intersezione(poligono, centro):
-    """
-    Trova l'intersezione delle rette perpendicolari ai segmenti del poligono,
-    passanti per i punti del poligono.
 
-    Args:
-        poligono (list of tuple): Lista di punti che rappresentano i vertici del poligono (x, y).
-        centro (tuple): Punto centrale (x, y).
-
-    Returns:
-        tuple: Punto di intersezione (x, y) delle rette perpendicolari.
-    """
-    intersection=[]
-    def retta_perpendicolare(segmento, punto):
-        (x1, y1), (x2, y2) = segmento
-        if x2 - x1 != 0:  # Evita divisioni per zero
-            m_segmento = (y2 - y1) / (x2 - x1)
-            m_perpendicolare = -1 / m_segmento
-        else:  # Segmento verticale -> retta perpendicolare è orizzontale
-            m_perpendicolare = 0
-        
-        x0, y0 = punto
-        q = y0 - m_perpendicolare * x0
-        return m_perpendicolare, q
-
-    n = len(poligono)
-    if n < 2:
-        raise ValueError("Il poligono deve avere almeno due punti.")
-
-    # Prendi i primi due punti e crea i segmenti
-    n = len(poligono)
-
-    for i in range(n):
-        punto1 = poligono[i]
-        punto2 = poligono[(i + 1) % n]  # Usa modulo per chiudere il poligono
-        # Segmenti che uniscono il centro ai due punti consecutivi
-        segmento1 = (punto1, centro)
-        segmento2 = (punto2, centro)
-        retta1 = retta_perpendicolare(segmento1, punto1)
-        retta2 = retta_perpendicolare(segmento2, punto2)
-        retta1 = retta_perpendicolare(segmento1, punto1)
-        retta2 = retta_perpendicolare(segmento2, punto2)
-        intersection.append( intersezione_rette(retta1, retta2) )
-
-    
-    return intersection
 

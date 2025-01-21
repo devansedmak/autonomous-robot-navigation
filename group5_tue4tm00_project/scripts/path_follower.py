@@ -212,8 +212,13 @@ class SafePathFollower(Node):
         scan_polygon_temp1= self.scan_polygon
         nearest_points = proj_nav_tools.local_nearest(self.scan_points, pose_temp)
         self.convex_interior = tools.polygon_convex_interior_safe_new(scan_polygon_temp1,nearest_points, pose_temp, self.r)
-        self.path_goal = path_follow_tools.path_goal_support_corridor(self.path, pose_temp, self.convex_interior)
-        
+        #print(self.path)
+        if self.path.size > 1:
+            self.path_goal = path_follow_tools.path_goal_support_corridor(self.path, pose_temp, self.convex_interior)
+        else:
+            self.path_goal = None
+            self.path = np.zeros((0,2)) 
+        #print(self.path_goal)
         # If close to goal or no path, stop the robot
         if self.path is None or self.path_goal is None or len(self.path_msg.poses) == 0 or np.linalg.norm(self.path_goal - pose_temp) < 0.2 :
             self.cmd_vel.linear.x = 0.0

@@ -202,10 +202,52 @@ class PathPlanner(Node):
         plt.axis("equal")  # Ensure equal scaling for accurate spatial representation
         plt.show()
 
+    def plot_graph_path(self, G, path):
+        """
+        Plots the graph with edges and highlights the path.
+
+        Parameters:
+        G (networkx.Graph): The graph to be plotted.
+        path (list): The path as a list of nodes.
+
+        Returns:
+        None
+        """
+        import matplotlib.pyplot as plt
+        import networkx as nx
+
+        # Convert nodes to tuples if necessary
+        pos = {tuple(node): tuple(node) for node in G.nodes()}
+
+        # Convert path nodes to tuples
+        path = [tuple(node) for node in path]
+
+        # Validate that all path nodes are in the graph
+        for node in path:
+            if node not in pos:
+                print(f"Warning: Node {node} is not in the graph!")
+                return
+
+        # Draw nodes (vertices)
+        nx.draw_networkx_nodes(G, pos, node_size=5, node_color="skyblue", edgecolors="black")
+
+        # Draw edges (all in red)
+        nx.draw_networkx_edges(G, pos, edge_color="red")
+
+        # Highlight the path if provided
+        if path:
+            path_edges = list(zip(path[:-1], path[1:]))
+            nx.draw_networkx_edges(G, pos, edgelist=path_edges, edge_color="blue", width=2)
+
+        plt.title("Graph Plot with Path")
+        plt.axis("equal")  # Ensure equal scaling for accurate spatial representation
+        plt.show()
+
     def timer_callback(self):
         """
         Callback function for peridic timer updates
         """
+        
         if (self.pose_msg is None) or (self.goal_msg is None) or (self.costmap_msg is None):
             self.get_logger().warn("Pose, goal, or costmap messages are not yet received. Skipping...")
             return
@@ -274,19 +316,48 @@ class PathPlanner(Node):
                 
                 # Check if the start cell is in the graph
                 if tuple(start_cell) not in self.graph.nodes:
-                    x_nearest_start = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - start_cell))
-                    if tools3.safety_verification_brehensam(costmap_matrix, start_cell, x_nearest_start, self.max_cost):
-                        self.graph.add_node(tuple(start_cell))
-                        self.graph.add_edge(tuple(x_nearest_start), tuple(start_cell), weight=tools3.local_cost(x_nearest_start, start_cell, costmap_matrix))                
-                    else:
+                    #x_nearest_start = min(self.graph.nodes, key=lambda v: np.linalg.norm(np.array(v) - start_cell))
+                    #Connect the start cell to all its neighboring cells by establishing possible safe connections between them.
+                    radius=100
+                    x_neighbors = tools3.points_within_radius(self.graph.nodes, start_cell, radius)
+                    connection_found = False
+                    for x_near in x_neighbors:
+                        if tools3.safety_verification_brehensam(costmap_matrix, start_cell, x_near, self.max_cost):
+                            self.graph.add_node(tuple(start_cell))
+                            self.graph.add_edge(tuple(x_near), tuple(start_cell), weight=tools3.local_cost(x_near, start_cell, costmap_matrix))
+                            connection_found = True
+
+                    if not connection_found:
                         if costmap_matrix[start_cell[1], start_cell[0]] == self.max_cost:
                             raise nx.NodeNotFound
-                        self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest_start, (self.n+500), self.d_parameter, self.max_cost, start_cell, self.graph)
+                        #self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest_start, (self.n+500), self.d_parameter, self.max_cost, start_cell, self.graph)
+
+                        if self.n < 1600:
+                            
+                            self.check_graph = True
+                            self.n=self.n*4
+                            self.timer_callback()
+                        else: 
+                            
+                            pose_msg = PoseStamped()
+                            pose_msg.header = path_msg.header
+                            self.path_publisher.publish(path_msg)
+                            
+                            return
+                            
                 
                 # Check if the goal cell is in the graph
-                if tools3.safety_verification_brehensam(costmap_matrix, goal_cell, x_nearest, self.max_cost):
-                    self.graph.add_node(tuple(goal_cell))
-                    self.graph.add_edge(tuple(x_nearest), tuple(goal_cell), weight=tools3.local_cost(x_nearest, goal_cell, costmap_matrix))
+                #Connect the goal cell to all its neighboring cells by establishing possible safe connections between them.
+                radius=10
+                x_neighbors = tools3.points_within_radius(self.graph.nodes, goal_cell, radius)
+                connection_found = False
+                for x_near in x_neighbors:
+                    if tools3.safety_verification_brehensam(costmap_matrix, goal_cell, x_near, self.max_cost):
+                        self.graph.add_node(tuple(goal_cell))
+                        self.graph.add_edge(tuple(x_near), tuple(goal_cell), weight=tools3.local_cost(x_near, goal_cell, costmap_matrix))
+                        connection_found = True
+                
+                if connection_found:
                     try:
                         path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
                     except KeyError:
@@ -294,19 +365,48 @@ class PathPlanner(Node):
                 else:
                     if costmap_matrix[goal_cell[1], goal_cell[0]] == self.max_cost:
                         raise nx.NodeNotFound
-                    self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
-                    path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
-
+                    #self.graph = tools3.informed_optimal_rrt(costmap_matrix, x_nearest, (self.n+500), self.d_parameter, self.max_cost, goal_cell, self.graph)
+                    #path_grid, length = tools3.dijkstra_path(self.graph, tuple(start_cell), tuple(goal_cell))
+                    if self.n < 1600:
+                        
+                        self.check_graph = True
+                        self.n=self.n*4
+                        self.timer_callback()
+                    else: 
+                        
+                        pose_msg = PoseStamped()
+                        pose_msg.header = path_msg.header
+                        #pose_msg.pose.position.x = []
+                        #pose_msg.pose.position.y = []
+                        #path_msg.poses.append(pose_msg)
+                        self.path_publisher.publish(path_msg)
+                        
+                        return
+                
                 # If a path is found, restart the algorithm only one time
-                if path_grid is None:
+                if path_grid is None and self.n < 1600:
+                    
                     self.check_graph = True
                     self.n=self.n*4
                     self.timer_callback()
+                
+                if path_grid is None and self.n >= 1600:
+                    
+                    pose_msg = PoseStamped()
+                    pose_msg.header = path_msg.header
+                    #pose_msg.pose.position.x = []
+                    #pose_msg.pose.position.y = []
+                    #path_msg.poses.append(pose_msg)
+                    self.path_publisher.publish(path_msg)
+                    
+                    return
                 
                 # Convert the path from grid to world coordinates
                 path_world = search_based_path_planning.grid_to_world(path_grid, costmap_origin, costmap_resolution)  
                 print(path_world)
                 self.path=path_world
+                #self.plot_graph(self.graph) # Plot the graph
+                #self.plot_graph_path(self.graph,path_grid) # Plot the path
 
                 for waypoint in path_world:
                     pose_msg = PoseStamped()

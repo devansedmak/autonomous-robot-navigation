@@ -16,7 +16,7 @@ def generate_launch_description():
     ld.add_action(namespace)
     
 
-    rviz_config = os.path.join(get_package_share_directory('core_tue4tm00_project'), 'config', 'robot_goal_scan_map_costmap_path.rviz')
+    rviz_config = os.path.join(get_package_share_directory('group5_tue4tm00_project'), 'config', 'robot_goal_scan_map_costmap_path.rviz')
     turtlebot_map_launch = GroupAction(
         actions=[
             IncludeLaunchDescription(
@@ -36,7 +36,7 @@ def generate_launch_description():
     )
     ld.add_action(turtlebot_map_launch)
 
-    goal_file = os.path.join(get_package_share_directory('core_tue4tm00_project'), 'config', 'goal_poses.yaml')
+    goal_file = os.path.join(get_package_share_directory('group5_tue4tm00_project'), 'config', 'goal_poses.yaml')
     goal_publisher_launch = GroupAction(
         actions=[
             IncludeLaunchDescription(
